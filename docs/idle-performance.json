@@ -1,0 +1,22 @@
+{
+    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
+    "sha256":  "464788E9EBF28F85DD2312B548DB6780CB8083C2C915166C54E0278E0886757D",
+    "executableBytes":  163927535,
+    "startedAt":  "2026-07-19T03:03:12.1778670+08:00",
+    "completedAt":  "2026-07-19T03:04:18.2304150+08:00",
+    "warmupSeconds":  12,
+    "observationSeconds":  65.028,
+    "processorCount":  16,
+    "cpuDeltaSeconds":  0.96875,
+    "singleCoreCpuPercent":  1.4897,
+    "wholeMachineCpuPercent":  0.0931,
+    "privateMemoryBytes":  86355968,
+    "workingSetBytes":  176398336,
+    "peakPrivateMemoryBytes":  89231360,
+    "peakWorkingSetBytes":  179085312,
+    "databaseFileCount":  3,
+    "databaseChanges":  [
+
+                        ],
+    "databaseWritesObserved":  false
+}

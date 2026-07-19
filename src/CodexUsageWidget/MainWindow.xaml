@@ -1,0 +1,1274 @@
+<Window x:Class="CodexUsageWidget.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:CodexUsageWidget.Controls"
+        xmlns:converters="clr-namespace:CodexUsageWidget.Converters"
+        xmlns:core="clr-namespace:CodexUsageWidget.Core;assembly=CodexUsageWidget.Core"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:viewModels="clr-namespace:CodexUsageWidget.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=viewModels:DesignMainViewModel, IsDesignTimeCreatable=True}"
+        Title="{DynamicResource Loc.AppName}"
+        Width="80"
+        Height="80"
+        MinWidth="80"
+        MinHeight="80"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="{Binding IsAlwaysOnTop}"
+        FontFamily="{DynamicResource BodyFontFamily}"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        MouseEnter="Window_OnMouseEnter"
+        MouseLeave="Window_OnMouseLeave"
+        PreviewMouseLeftButtonDown="DragSurface_OnMouseLeftButtonDown"
+        PreviewMouseMove="Window_OnPreviewMouseMove"
+        PreviewMouseLeftButtonUp="Window_OnPreviewMouseLeftButtonUp"
+        LostMouseCapture="Window_OnLostMouseCapture"
+        Deactivated="Window_OnDeactivated"
+        KeyDown="Window_OnKeyDown"
+        Closed="Window_OnClosed">
+    <Window.Resources>
+        <converters:TokenCountConverter x:Key="TokenCountConverter" />
+        <converters:RatioToPercentConverter x:Key="RatioToPercentConverter" />
+
+        <FontFamily x:Key="BodyFontFamily">Segoe UI Variable Text, Microsoft YaHei UI</FontFamily>
+        <FontFamily x:Key="DisplayFontFamily">Segoe UI Variable Display, Microsoft YaHei UI</FontFamily>
+        <FontFamily x:Key="NumericFontFamily">Segoe UI Variable Display, Microsoft YaHei UI</FontFamily>
+        <CornerRadius x:Key="CollapsedCornerRadius">34</CornerRadius>
+        <CornerRadius x:Key="CapsuleCornerRadius">32</CornerRadius>
+        <CornerRadius x:Key="PanelCornerRadius">30</CornerRadius>
+        <CornerRadius x:Key="OverlayCornerRadius">22</CornerRadius>
+        <CornerRadius x:Key="ToolTipCornerRadius">12</CornerRadius>
+        <CornerRadius x:Key="ArchiveBadgeCornerRadius">4</CornerRadius>
+        <CornerRadius x:Key="IconButtonCornerRadius">14</CornerRadius>
+        <CornerRadius x:Key="TrendButtonCornerRadius">8</CornerRadius>
+        <CornerRadius x:Key="TabSelectionCornerRadius">10</CornerRadius>
+        <CornerRadius x:Key="TabIndicatorCornerRadius">1</CornerRadius>
+        <FontWeight x:Key="HeroFontWeight">Light</FontWeight>
+        <Thickness x:Key="ContentMargin">20,0,20,10</Thickness>
+        <Thickness x:Key="TabPanelMargin">17,0,0,0</Thickness>
+        <Color x:Key="WidgetShadowColor">#D0000000</Color>
+        <sys:Double x:Key="HeroFontSize">58</sys:Double>
+        <sys:Double x:Key="SummaryValueFontSize">17</sys:Double>
+        <sys:Double x:Key="CollapsedShadowBlur">22</sys:Double>
+        <sys:Double x:Key="CollapsedShadowDepth">4</sys:Double>
+        <sys:Double x:Key="CollapsedShadowOpacity">0.24</sys:Double>
+        <sys:Double x:Key="CapsuleShadowBlur">20</sys:Double>
+        <sys:Double x:Key="CapsuleShadowDepth">3</sys:Double>
+        <sys:Double x:Key="CapsuleShadowOpacity">0.22</sys:Double>
+        <sys:Double x:Key="PanelShadowBlur">28</sys:Double>
+        <sys:Double x:Key="PanelShadowDepth">8</sys:Double>
+        <sys:Double x:Key="PanelShadowOpacity">0.28</sys:Double>
+        <sys:Double x:Key="OverlayShadowBlur">24</sys:Double>
+        <sys:Double x:Key="OverlayShadowDepth">8</sys:Double>
+        <sys:Double x:Key="OverlayShadowOpacity">0.34</sys:Double>
+        <sys:Double x:Key="TabIndicatorWidth">18</sys:Double>
+        <sys:Double x:Key="TabIndicatorHeight">2</sys:Double>
+        <sys:Double x:Key="RankingRowHeight">25</sys:Double>
+        <sys:Double x:Key="RankingBarHeight">1.8</sys:Double>
+        <sys:Double x:Key="RingStrokeThickness">2.2</sys:Double>
+        <sys:Double x:Key="CollapsedBackdropOpacity">0.24</sys:Double>
+        <sys:Double x:Key="ExpandedBackdropOpacity">0.16</sys:Double>
+
+        <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F7F4F8F6" />
+        <SolidColorBrush x:Key="SecondaryTextBrush" Color="#D6C8D3CE" />
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#B8AEB9B3" />
+        <SolidColorBrush x:Key="DividerBrush" Color="#32FFFFFF" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF6BE0AD" />
+        <SolidColorBrush x:Key="GoodBrush" Color="#FF6BE0AD" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#32182220" />
+        <SolidColorBrush x:Key="IconHoverBrush" Color="#30FFFFFF" />
+        <SolidColorBrush x:Key="IconPressedBrush" Color="#46FFFFFF" />
+        <SolidColorBrush x:Key="TabHoverBrush" Color="#00FFFFFF" />
+        <SolidColorBrush x:Key="TabSelectionBackgroundBrush" Color="#00FFFFFF" />
+        <SolidColorBrush x:Key="ToolTipBackgroundBrush" Color="#E816201D" />
+        <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#70FFFFFF" />
+        <SolidColorBrush x:Key="CollapsedBorderBrush" Color="#00FFFFFF" />
+        <SolidColorBrush x:Key="RingTrackBrush" Color="#3FFFFFFF" />
+        <SolidColorBrush x:Key="ExpandedBorderBrush" Color="#00FFFFFF" />
+        <SolidColorBrush x:Key="HeaderBrush" Color="#12FFFFFF" />
+        <SolidColorBrush x:Key="ArchiveBadgeBrush" Color="#2CFFFFFF" />
+        <SolidColorBrush x:Key="BarTrackBrush" Color="#35FFFFFF" />
+        <SolidColorBrush x:Key="LineFillBrush" Color="#CFEAF6F0" />
+        <SolidColorBrush x:Key="SummaryBackgroundBrush" Color="#0CFFFFFF" />
+        <SolidColorBrush x:Key="SummaryBorderBrush" Color="#35FFFFFF" />
+        <SolidColorBrush x:Key="SummaryDividerBrush" Color="#32FFFFFF" />
+        <SolidColorBrush x:Key="OverlayScrimBrush" Color="#78070B09" />
+        <SolidColorBrush x:Key="OverlayBackgroundBrush" Color="#C414201D" />
+        <SolidColorBrush x:Key="OverlayBorderBrush" Color="#00FFFFFF" />
+        <SolidColorBrush x:Key="QuotaBarTrackBrush" Color="#3FFFFFFF" />
+        <SolidColorBrush x:Key="WarningBrush" Color="#F5C76F" />
+        <SolidColorBrush x:Key="UrgentBrush" Color="#FFFFA052" />
+        <SolidColorBrush x:Key="CriticalBrush" Color="#FF6B72" />
+        <SolidColorBrush x:Key="CapsulePrimaryTextBrush" Color="#FFF5F7F6" />
+        <SolidColorBrush x:Key="CapsuleSecondaryTextBrush" Color="#F2D5DDD9" />
+        <SolidColorBrush x:Key="CapsuleMutedTextBrush" Color="#D6B8C2BD" />
+        <SolidColorBrush x:Key="CapsuleAccentBrush" Color="#FF6BE0AD" />
+        <SolidColorBrush x:Key="CapsuleGoodBrush" Color="#FF6BE0AD" />
+        <SolidColorBrush x:Key="CapsuleWarningBrush" Color="#FFFFCD72" />
+        <SolidColorBrush x:Key="CapsuleUrgentBrush" Color="#FFFFA052" />
+        <SolidColorBrush x:Key="CapsuleCriticalBrush" Color="#FFFF737B" />
+        <SolidColorBrush x:Key="TransparentBrush" Color="#00FFFFFF" />
+
+        <LinearGradientBrush x:Key="PanelBackgroundBrush"
+                             StartPoint="0,0"
+                             EndPoint="1,1">
+            <GradientStop Offset="0" Color="#5C27322F" />
+            <GradientStop Offset="0.52" Color="#48141D1A" />
+            <GradientStop Offset="1" Color="#52101917" />
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="CollapsedBackgroundBrush"
+                             StartPoint="0,0"
+                             EndPoint="1,1">
+            <GradientStop Offset="0" Color="#782C3935" />
+            <GradientStop Offset="0.52" Color="#6417221E" />
+            <GradientStop Offset="1" Color="#68101917" />
+        </LinearGradientBrush>
+
+        <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonChrome"
+                                Width="{TemplateBinding Width}"
+                                Height="{TemplateBinding Height}"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{DynamicResource IconButtonCornerRadius}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome"
+                                        Property="Background"
+                                        Value="{DynamicResource IconHoverBrush}" />
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonChrome"
+                                        Property="Background"
+                                        Value="{DynamicResource IconPressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WeeklyTrendButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Chrome"
+                                Margin="-5,-2"
+                                Padding="5,2"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{DynamicResource TrendButtonCornerRadius}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome"
+                                        Property="Background"
+                                        Value="{DynamicResource IconHoverBrush}" />
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome"
+                                        Property="Background"
+                                        Value="{DynamicResource IconPressedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="UsageTabItemStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="Width" Value="92" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="AutomationProperties.Name"
+                    Value="{Binding DisplayName}" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Grid Background="Transparent">
+                            <Border x:Name="SelectionSurface"
+                                    Background="Transparent"
+                                    IsHitTestVisible="False" />
+                             <TextBlock Text="{Binding DisplayName}"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        FontSize="13"
+                                        FontWeight="Normal"
+                                        Foreground="{TemplateBinding Foreground}" />
+                            <Border x:Name="SelectionIndicator"
+                                    Width="{DynamicResource TabIndicatorWidth}"
+                                    Height="{DynamicResource TabIndicatorHeight}"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Bottom"
+                                    Background="{DynamicResource AccentBrush}"
+                                    CornerRadius="{DynamicResource TabIndicatorCornerRadius}"
+                                    Opacity="0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                                <Setter TargetName="SelectionIndicator"
+                                        Property="Opacity"
+                                        Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ToolTip}">
+            <Setter Property="Background" Value="{DynamicResource ToolTipBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolTipBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="FontFamily"
+                    Value="Segoe UI Variable Text, Microsoft YaHei UI" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="HasDropShadow" Value="True" />
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="RootVisual">
+        <!-- Circle and capsule are alternative stable idle surfaces. The
+             selected surface expands directly into the full panel. -->
+        <Grid x:Name="CollapsedHost"
+              Width="80"
+              Height="80"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              Panel.ZIndex="30">
+            <Border x:Name="CollapsedCard"
+                    Margin="5"
+                    Background="{DynamicResource CollapsedBackgroundBrush}"
+                    BorderThickness="0"
+                    CornerRadius="{DynamicResource CollapsedCornerRadius}"
+                    ClipToBounds="True">
+                <Grid>
+                    <Ellipse Opacity="{DynamicResource CollapsedBackdropOpacity}"
+                             IsHitTestVisible="False"
+                             RenderOptions.BitmapScalingMode="HighQuality">
+                        <Ellipse.Fill>
+                            <ImageBrush x:Name="CollapsedGlassBackdrop"
+                                        Stretch="Fill" />
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <controls:UsageRing Width="62"
+                                        Height="62"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                            AutomationProperties.Name="{Binding RemainingAutomationName, Mode=OneWay}"
+                                        Percentage="{Binding RemainingPercent}"
+                                        StrokeThickness="{DynamicResource RingStrokeThickness}"
+                                        FontSize="20"
+                                        TrackBrush="{DynamicResource RingTrackBrush}"
+                                        GoodBrush="{DynamicResource GoodBrush}"
+                                        WarningBrush="{DynamicResource WarningBrush}"
+                                        UrgentBrush="{DynamicResource UrgentBrush}"
+                                        CriticalBrush="{DynamicResource CriticalBrush}"
+                                        TextBrush="{DynamicResource PrimaryTextBrush}" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="CapsuleHost"
+              Width="208"
+              Height="80"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              Visibility="Collapsed"
+              Panel.ZIndex="30"
+              AutomationProperties.Name="{Binding RemainingAutomationName, Mode=OneWay}">
+            <Border x:Name="CapsuleCard"
+                    Margin="6,8"
+                    Background="{DynamicResource CollapsedBackgroundBrush}"
+                    BorderThickness="0"
+                    CornerRadius="{DynamicResource CapsuleCornerRadius}"
+                    ClipToBounds="True">
+                <Grid>
+                    <Border x:Name="CapsuleBackdropSurface"
+                            CornerRadius="{DynamicResource CapsuleCornerRadius}"
+                            Opacity="{DynamicResource CollapsedBackdropOpacity}"
+                            IsHitTestVisible="False"
+                            RenderOptions.BitmapScalingMode="HighQuality">
+                        <Border.Background>
+                            <ImageBrush x:Name="CapsuleGlassBackdrop"
+                                        Stretch="Fill" />
+                        </Border.Background>
+                    </Border>
+                    <Grid Margin="13,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="52" />
+                            <ColumnDefinition Width="42" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   VerticalAlignment="Center"
+                                   FontFamily="{DynamicResource DisplayFontFamily}"
+                                   FontSize="23"
+                                   FontWeight="Normal"
+                                   Foreground="{DynamicResource CapsulePrimaryTextBrush}"
+                                   Text="{Binding RemainingDisplay}" />
+                        <Path Grid.Column="1"
+                              Width="35"
+                              Height="10"
+                              VerticalAlignment="Center"
+                              Stretch="Fill"
+                              Stroke="{Binding Foreground, ElementName=CapsuleStatusText, Mode=OneWay}"
+                              StrokeThickness="1.25"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Data="M0,5 C5,5 6,1 11,5 C16,9 18,1 23,5 C28,9 29,2 33,5 L35,5" />
+                        <StackPanel Grid.Column="2"
+                                    VerticalAlignment="Center">
+                             <TextBlock FontSize="9"
+                                        Foreground="{DynamicResource CapsuleSecondaryTextBrush}"
+                                        TextTrimming="CharacterEllipsis"
+                                        Text="{DynamicResource Loc.RemainingQuota}" />
+                            <TextBlock x:Name="CapsuleStatusText"
+                                       Margin="0,1,0,0"
+                                       FontSize="9"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="{Binding CapsuleQuotaStatusText, Mode=OneWay}">
+                                <TextBlock.Style>
+                                     <Style TargetType="{x:Type TextBlock}">
+                                         <Setter Property="Foreground"
+                                                 Value="{DynamicResource CapsuleMutedTextBrush}" />
+                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.Syncing}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleAccentBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.Sufficient}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleGoodBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.Stable}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleGoodBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.Low}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleWarningBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.NearlyExhausted}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleUrgentBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CapsuleQuotaStatus, Mode=OneWay}"
+                                                 Value="{x:Static core:RemainingQuotaStatus.Exhausted}">
+                                                 <Setter Property="Foreground"
+                                                         Value="{DynamicResource CapsuleCriticalBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border x:Name="ExpandedPanel"
+                Margin="6"
+                Visibility="Collapsed"
+                Opacity="0"
+                Panel.ZIndex="10"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderThickness="0"
+                CornerRadius="{DynamicResource PanelCornerRadius}"
+                ClipToBounds="True">
+            <Grid x:Name="ExpandedContentRoot">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="108" />
+                    <RowDefinition Height="42" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Rectangle Grid.RowSpan="3"
+                           RadiusX="30"
+                           RadiusY="30"
+                           Opacity="{DynamicResource ExpandedBackdropOpacity}"
+                           IsHitTestVisible="False"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                    <Rectangle.Fill>
+                        <ImageBrush x:Name="ExpandedGlassBackdrop"
+                                    Stretch="Fill" />
+                    </Rectangle.Fill>
+                </Rectangle>
+
+                <Grid Grid.Row="0"
+                      Margin="20,14,14,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="126" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="86" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="2" />
+                    </Grid.RowDefinitions>
+
+                    <Viewbox Grid.Column="0"
+                             MaxWidth="124"
+                             MaxHeight="74"
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Top"
+                             Stretch="Uniform"
+                             StretchDirection="DownOnly">
+                        <TextBlock FontFamily="{DynamicResource DisplayFontFamily}"
+                                   FontSize="{DynamicResource HeroFontSize}"
+                                   FontWeight="{DynamicResource HeroFontWeight}"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                   Text="{Binding RemainingDisplay}" />
+                    </Viewbox>
+
+                    <StackPanel Grid.Column="1"
+                                Margin="2,4,4,0"
+                                VerticalAlignment="Top">
+                        <TextBlock FontSize="13"
+                                   FontWeight="Normal"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                           Text="{DynamicResource Loc.RemainingQuota}" />
+                        <TextBlock Margin="0,1,0,0"
+                                   FontSize="10.5"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="{Binding ResetText}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Button Margin="0,5,0,0"
+                                Style="{StaticResource WeeklyTrendButtonStyle}"
+                                Command="{Binding ToggleWeeklyQuotaCommand}"
+                                AutomationProperties.AutomationId="WeeklyQuotaTrendButton"
+                                        ToolTip="{DynamicResource Loc.ViewWeeklyQuota}">
+                            <StackPanel Orientation="Horizontal"
+                                        VerticalAlignment="Center">
+                                <Ellipse Width="7"
+                                         Height="7"
+                                         Margin="0,0,5,0"
+                                         Fill="{DynamicResource AccentBrush}" />
+                                <TextBlock Margin="0,0,8,0"
+                                           FontSize="10.5"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                           Text="{Binding WeeklyQuotaUsedDisplay}" />
+                                <controls:WeeklyQuotaSparkline Width="58"
+                                                               Height="14"
+                                                               IsHitTestVisible="False"
+                                                               ItemsSource="{Binding WeeklyQuotaDays}"
+                                                               TrackBrush="{DynamicResource DividerBrush}"
+                                                               StrokeBrush="{DynamicResource AccentBrush}"
+                                                               StrokeThickness="1"
+                                                               DotRadius="1.5" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top">
+                        <Button Style="{StaticResource IconButtonStyle}"
+                                Command="{Binding TogglePinCommand}"
+                                AutomationProperties.AutomationId="PinButton"
+                                    ToolTip="{DynamicResource Loc.PinExpanded}">
+                            <TextBlock Text="&#xE718;"
+                                       FontFamily="Segoe Fluent Icons"
+                                       FontSize="15">
+                                <TextBlock.Style>
+                                    <Style TargetType="{x:Type TextBlock}">
+                                        <Setter Property="Foreground"
+                                                Value="{DynamicResource SecondaryTextBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPinned}"
+                                                         Value="True">
+                                                <Setter Property="Foreground"
+                                                        Value="{DynamicResource AccentBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Button>
+                        <Button Style="{StaticResource IconButtonStyle}"
+                                Command="{Binding RefreshCommand}"
+                                AutomationProperties.AutomationId="RefreshButton"
+                                    ToolTip="{DynamicResource Loc.RefreshNow}">
+                            <TextBlock Text="&#xE72C;"
+                                       FontFamily="Segoe Fluent Icons"
+                                       FontSize="16"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        </Button>
+                        <Button Style="{StaticResource IconButtonStyle}"
+                                Command="{Binding OpenSettingsCommand}"
+                                AutomationProperties.AutomationId="SettingsButton"
+                                    ToolTip="{DynamicResource Loc.Settings}">
+                            <TextBlock Text="&#xE713;"
+                                       FontFamily="Segoe Fluent Icons"
+                                       FontSize="16"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        </Button>
+                    </StackPanel>
+
+                    <ProgressBar Grid.Row="1"
+                                 Grid.ColumnSpan="3"
+                                 Height="2"
+                                 Margin="-20,0,-14,-6"
+                                 Minimum="0"
+                                 Maximum="1"
+                                 Value="{Binding IndexProgress}"
+                                 Background="Transparent"
+                                 Foreground="{DynamicResource AccentBrush}">
+                        <ProgressBar.Style>
+                            <Style TargetType="{x:Type ProgressBar}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBuildingHistory}"
+                                                 Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ProgressBar.Style>
+                    </ProgressBar>
+                </Grid>
+
+                <TabControl Grid.Row="1"
+                            Grid.RowSpan="2"
+                            x:Name="UsageTabs"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            ItemsSource="{Binding Periods}"
+                            SelectedItem="{Binding SelectedPeriod, Mode=TwoWay}"
+                            ItemContainerStyle="{StaticResource UsageTabItemStyle}"
+                            PreviewMouseLeftButtonUp="UsageTabs_OnPreviewMouseLeftButtonUp">
+                    <TabControl.Style>
+                        <Style TargetType="{x:Type TabControl}">
+                            <Setter Property="IsHitTestVisible" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsWeeklyQuotaOverlayOpen}"
+                                             Value="True">
+                                    <Setter Property="IsHitTestVisible" Value="False" />
+                                    <Setter Property="Opacity" Value="0.18" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TabControl.Style>
+                    <TabControl.Template>
+                        <ControlTemplate TargetType="{x:Type TabControl}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="42" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <TabPanel Grid.Row="0"
+                                          Margin="{DynamicResource TabPanelMargin}"
+                                          IsItemsHost="True"
+                                          KeyboardNavigation.TabIndex="1"
+                                          Panel.ZIndex="1" />
+                                <ContentPresenter Grid.Row="1"
+                                                  ContentSource="SelectedContent"
+                                                  KeyboardNavigation.TabNavigation="Local"
+                                                  SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </TabControl.Template>
+                    <TabControl.ContentTemplate>
+                        <DataTemplate DataType="{x:Type viewModels:UsagePeriodViewModel}">
+                            <Grid Margin="{DynamicResource ContentMargin}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="90" />
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="26" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0"
+                                               VerticalAlignment="Center"
+                                               FontSize="12.5"
+                                               FontWeight="Normal"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Text="{Binding SectionTitle}" />
+                                    <ItemsControl Grid.Row="1"
+                                                  ItemsSource="{Binding Rankings}"
+                                                  VerticalAlignment="Top">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type viewModels:TaskUsageRowViewModel}">
+                                                <Grid Height="{DynamicResource RankingRowHeight}"
+                                                      ToolTipService.ShowDuration="12000">
+                                                    <Grid.Style>
+                                                        <Style TargetType="{x:Type Grid}">
+                                                            <Setter Property="ToolTipService.IsEnabled"
+                                                                    Value="True" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsAggregate}"
+                                                                             Value="True">
+                                                                    <Setter Property="ToolTipService.IsEnabled"
+                                                                            Value="False" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Grid.Style>
+                                                    <Grid.ToolTip>
+                                                        <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                                            <StackPanel MinWidth="180">
+                                                                <TextBlock Margin="0,0,0,6"
+                                                                           FontWeight="SemiBold"
+                                                                           Text="{Binding Title}" />
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <Grid.RowDefinitions>
+                                                                        <RowDefinition Height="Auto" />
+                                                                        <RowDefinition Height="Auto" />
+                                                                        <RowDefinition Height="Auto" />
+                                                                        <RowDefinition Height="Auto" />
+                                                                    </Grid.RowDefinitions>
+                                                                    <TextBlock Grid.Row="0"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                            Text="{DynamicResource Loc.Input}" />
+                                                                    <TextBlock Grid.Row="0"
+                                                                               Grid.Column="1"
+                                                                               Margin="18,0,0,0"
+                                                                               HorizontalAlignment="Right"
+                                                                               Text="{Binding InputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                                                    <TextBlock Grid.Row="1"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                            Text="{DynamicResource Loc.CachedInput}" />
+                                                                    <TextBlock Grid.Row="1"
+                                                                               Grid.Column="1"
+                                                                               Margin="18,0,0,0"
+                                                                               HorizontalAlignment="Right"
+                                                                               Text="{Binding CachedInputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                                                    <TextBlock Grid.Row="2"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                            Text="{DynamicResource Loc.Output}" />
+                                                                    <TextBlock Grid.Row="2"
+                                                                               Grid.Column="1"
+                                                                               Margin="18,0,0,0"
+                                                                               HorizontalAlignment="Right"
+                                                                               Text="{Binding OutputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                                                    <TextBlock Grid.Row="3"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                            Text="{DynamicResource Loc.ReasoningOutput}" />
+                                                                    <TextBlock Grid.Row="3"
+                                                                               Grid.Column="1"
+                                                                               Margin="18,0,0,0"
+                                                                               HorizontalAlignment="Right"
+                                                                               Text="{Binding ReasoningOutputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                                                </Grid>
+                                                            </StackPanel>
+                                                        </ToolTip>
+                                                    </Grid.ToolTip>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="19" />
+                                                        <RowDefinition Height="*" />
+                                                    </Grid.RowDefinitions>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="24" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <TextBlock Grid.Row="0"
+                                                               Grid.Column="0"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="10.5"
+                                                               Foreground="{DynamicResource MutedTextBrush}"
+                                                               Text="{Binding Rank, StringFormat={}{0:00}}" />
+
+                                                    <Grid Grid.Row="0"
+                                                          Grid.Column="1"
+                                                          Margin="0,0,10,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0"
+                                                                   VerticalAlignment="Center"
+                                                                   FontSize="11.75"
+                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                   Text="{Binding Title}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <Border Grid.Column="1"
+                                                                Margin="4,0,0,0"
+                                                                Padding="3,1"
+                                                                VerticalAlignment="Center"
+                                                                Background="{DynamicResource ArchiveBadgeBrush}"
+                                                                CornerRadius="{DynamicResource ArchiveBadgeCornerRadius}">
+                                                            <Border.Style>
+                                                                <Style TargetType="{x:Type Border}">
+                                                                    <Setter Property="Visibility"
+                                                                            Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsArchived}"
+                                                                                     Value="True">
+                                                                            <Setter Property="Visibility"
+                                                                                    Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <TextBlock FontSize="8"
+                                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                                                       Text="{DynamicResource Loc.Archived}" />
+                                                        </Border>
+                                                    </Grid>
+
+                                                    <StackPanel Grid.Row="0"
+                                                                Grid.Column="2"
+                                                                Orientation="Horizontal"
+                                                                HorizontalAlignment="Right"
+                                                                VerticalAlignment="Center">
+                                                        <TextBlock FontFamily="{DynamicResource NumericFontFamily}"
+                                                                   FontSize="10.75"
+                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                   Text="{Binding TotalTokens, Converter={StaticResource TokenCountConverter}}" />
+                                                        <TextBlock Margin="7,0,0,0"
+                                                                   MinWidth="34"
+                                                                   HorizontalAlignment="Right"
+                                                                   FontSize="8.75"
+                                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                                   Text="{Binding PeriodShare, Converter={StaticResource RatioToPercentConverter}}" />
+                                                    </StackPanel>
+
+                                                    <controls:ProportionBar Grid.Row="1"
+                                                                            Grid.Column="1"
+                                                                            Grid.ColumnSpan="2"
+                                                                            Height="{DynamicResource RankingBarHeight}"
+                                                                            Margin="0,1,0,2"
+                                                                            VerticalAlignment="Bottom"
+                                                                            Value="{Binding Share}"
+                                                                            TrackBrush="{DynamicResource BarTrackBrush}"
+                                                                            FillBrush="{DynamicResource LineFillBrush}"
+                                                                            AccentBrush="{DynamicResource AccentBrush}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <TextBlock Grid.Row="1"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource MutedTextBrush}"
+                                                   Text="{DynamicResource Loc.NoTokenRecords}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding Rankings.Count}"
+                                                                       Value="0" />
+                                                            <Condition Binding="{Binding IsLoaded}"
+                                                                       Value="True" />
+                                                            <Condition Binding="{Binding IsLoading}"
+                                                                       Value="False" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <TextBlock Grid.Row="1"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Text="{DynamicResource Loc.LoadingPeriod}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding Rankings.Count}"
+                                                                       Value="0" />
+                                                            <Condition Binding="{Binding IsLoading}"
+                                                                       Value="True" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <TextBlock Grid.Row="1"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource MutedTextBrush}"
+                                                   Text="{DynamicResource Loc.ClickTabToRefresh}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding Rankings.Count}"
+                                                                       Value="0" />
+                                                            <Condition Binding="{Binding IsLoaded}"
+                                                                       Value="False" />
+                                                            <Condition Binding="{Binding IsLoading}"
+                                                                       Value="False" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+
+                                <Grid Grid.Row="1"
+                                      DataContext="{Binding Summary}">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="1" />
+                                        <RowDefinition Height="50" />
+                                        <RowDefinition Height="19" />
+                                        <RowDefinition Height="20" />
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0"
+                                            Background="{DynamicResource SummaryDividerBrush}" />
+
+                                    <UniformGrid Grid.Row="1"
+                                                 Columns="4"
+                                                 Margin="0,7,0,0">
+                                        <StackPanel>
+                                            <TextBlock HorizontalAlignment="Left"
+                                                       FontSize="9.5"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{DynamicResource Loc.Total}" />
+                                             <TextBlock HorizontalAlignment="Left"
+                                                        FontFamily="{DynamicResource NumericFontFamily}"
+                                                        FontSize="{DynamicResource SummaryValueFontSize}"
+                                                        FontWeight="Normal"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       Text="{Binding TotalTokens, Converter={StaticResource TokenCountConverter}}" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       FontSize="9.5"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{DynamicResource Loc.Input}" />
+                                             <TextBlock HorizontalAlignment="Center"
+                                                        FontFamily="{DynamicResource NumericFontFamily}"
+                                                        FontSize="{DynamicResource SummaryValueFontSize}"
+                                                        FontWeight="Normal"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       Text="{Binding InputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       FontSize="9.5"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{DynamicResource Loc.Output}" />
+                                             <TextBlock HorizontalAlignment="Center"
+                                                        FontFamily="{DynamicResource NumericFontFamily}"
+                                                        FontSize="{DynamicResource SummaryValueFontSize}"
+                                                        FontWeight="Normal"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       Text="{Binding OutputTokens, Converter={StaticResource TokenCountConverter}}" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       FontSize="9.5"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{DynamicResource Loc.Tasks}" />
+                                             <TextBlock HorizontalAlignment="Right"
+                                                        FontFamily="{DynamicResource NumericFontFamily}"
+                                                        FontSize="{DynamicResource SummaryValueFontSize}"
+                                                        FontWeight="Normal"
+                                                        Foreground="{DynamicResource PrimaryTextBrush}"
+                                                        Text="{Binding TaskCount}" />
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <TextBlock Grid.Row="2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="9.5"
+                                               Foreground="{DynamicResource SecondaryTextBrush}">
+                                <Run Text="{DynamicResource Loc.CachedInput}" />
+                                <Run Text=" " />
+                                        <Run Text="{Binding CachedInputTokens, Mode=OneWay, Converter={StaticResource TokenCountConverter}}" />
+                                <Run Text="  ·  " />
+                                <Run Text="{DynamicResource Loc.ReasoningOutput}" />
+                                <Run Text=" " />
+                                        <Run Text="{Binding ReasoningOutputTokens, Mode=OneWay, Converter={StaticResource TokenCountConverter}}" />
+                                    </TextBlock>
+
+                                    <Grid Grid.Row="3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="9"
+                                                   Foreground="{DynamicResource MutedTextBrush}">
+                                <Run Text="{DynamicResource Loc.TopNinePrefix}" />
+                                            <Run Text="{Binding TopNineShare, Mode=OneWay, Converter={StaticResource RatioToPercentConverter}}" />
+                                <Run Text="{DynamicResource Loc.OtherSeparator}" />
+                                            <Run Text="{Binding OtherTokens, Mode=OneWay, Converter={StaticResource TokenCountConverter}}" />
+                                        </TextBlock>
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="9"
+                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                   Text="{Binding LastRefreshDisplay}" />
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </DataTemplate>
+                    </TabControl.ContentTemplate>
+                </TabControl>
+
+                <!-- In-window overlay: no Popup/HWND, so pointer containment and
+                     immediate auto-collapse keep working at monitor edges. -->
+                <Grid x:Name="WeeklyQuotaOverlayRoot"
+                      Grid.RowSpan="3"
+                      Panel.ZIndex="50"
+                      AutomationProperties.AutomationId="WeeklyQuotaOverlay">
+                    <Grid.Style>
+                        <Style TargetType="{x:Type Grid}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsWeeklyQuotaOverlayOpen}"
+                                             Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+                    <Border Margin="0,108,0,0"
+                            Background="{DynamicResource OverlayScrimBrush}"
+                            MouseLeftButtonDown="WeeklyQuotaScrim_OnMouseLeftButtonDown" />
+
+                    <Border x:Name="WeeklyQuotaOverlayCard"
+                            Width="376"
+                            Height="268"
+                            Margin="0,136,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Top"
+                            Background="{DynamicResource OverlayBackgroundBrush}"
+                            BorderThickness="0"
+                            CornerRadius="{DynamicResource OverlayCornerRadius}"
+                            AutomationProperties.AutomationId="WeeklyQuotaOverlayCard">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="{DynamicResource OverlayShadowBlur}"
+                                              Direction="270"
+                                              ShadowDepth="{DynamicResource OverlayShadowDepth}"
+                                              Color="{DynamicResource WidgetShadowColor}"
+                                              Opacity="{DynamicResource OverlayShadowOpacity}" />
+                        </Border.Effect>
+                        <Grid Margin="20,15,18,13">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="48" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="24" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="28" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Top">
+                                    <TextBlock FontSize="15"
+                                               FontWeight="Normal"
+                                               Foreground="{DynamicResource PrimaryTextBrush}"
+                                               AutomationProperties.AutomationId="WeeklyQuotaOverlay"
+                            AutomationProperties.Name="{DynamicResource Loc.WeeklyQuotaObservations}"
+                            Text="{DynamicResource Loc.WeeklyQuotaObservations}" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               FontSize="10.5"
+                                               Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="{DynamicResource Loc.WeeklyQuotaSubtitle}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Margin="8,0,0,0"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           FontSize="9.5"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                       Text="{DynamicResource Loc.Updating}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="{x:Type TextBlock}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsWeeklyQuotaLoading}"
+                                                             Value="True">
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <Button Grid.Column="2"
+                                        Style="{StaticResource IconButtonStyle}"
+                                        Command="{Binding CloseWeeklyQuotaCommand}"
+                                        AutomationProperties.AutomationId="WeeklyQuotaCloseButton"
+                                ToolTip="{DynamicResource Loc.Close}">
+                                    <TextBlock Text="&#xE711;"
+                                               FontFamily="Segoe Fluent Icons"
+                                               FontSize="13"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                </Button>
+                            </Grid>
+
+                            <Grid Grid.Row="1"
+                                  Margin="0,6,0,0">
+                                <ItemsControl ItemsSource="{Binding WeeklyQuotaDays}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Rows="1" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type viewModels:WeeklyQuotaDayViewModel}">
+                                            <Grid MouseEnter="WeeklyQuotaDay_OnMouseEnter"
+                                                  MouseLeave="WeeklyQuotaDay_OnMouseLeave"
+                                                  AutomationProperties.Name="{Binding ToolTipText}">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="98" />
+                                                    <RowDefinition Height="20" />
+                                                    <RowDefinition Height="20" />
+                                                </Grid.RowDefinitions>
+                                                <Border Grid.Row="0"
+                                                        Width="4"
+                                                        Height="64"
+                                                        VerticalAlignment="Bottom"
+                                                        Background="{DynamicResource QuotaBarTrackBrush}"
+                                                        CornerRadius="2" />
+                                                <Border Grid.Row="0"
+                                                        Width="5"
+                                                        Height="{Binding BarHeight}"
+                                                        VerticalAlignment="Bottom"
+                                                        Background="{DynamicResource AccentBrush}"
+                                                        CornerRadius="2.5"
+                                                        RenderTransformOrigin="0.5,1">
+                                                    <Border.RenderTransform>
+                                                        <ScaleTransform ScaleY="1.55" />
+                                                    </Border.RenderTransform>
+                                                    <Border.Style>
+                                                        <Style TargetType="{x:Type Border}">
+                                                            <Setter Property="Visibility"
+                                                                    Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsObserved}"
+                                                                             Value="False">
+                                                                    <Setter Property="Visibility"
+                                                                            Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                </Border>
+                                                <TextBlock Grid.Row="1"
+                                                           HorizontalAlignment="Center"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           Text="{Binding DateLabel}" />
+                                                <TextBlock Grid.Row="2"
+                                                           HorizontalAlignment="Center"
+                                                           FontSize="9.5"
+                                                           Foreground="{DynamicResource AccentBrush}"
+                                                           AutomationProperties.AutomationId="{Binding Date, StringFormat=WeeklyQuotaDay_{0:yyyyMMdd}}"
+                                                           AutomationProperties.Name="{Binding ToolTipText}"
+                                                           Text="{Binding UsedDisplay}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <controls:WeeklyQuotaSparkline Height="86"
+                                                               Margin="0,7,0,43"
+                                                               VerticalAlignment="Top"
+                                                               IsHitTestVisible="False"
+                                                               ItemsSource="{Binding WeeklyQuotaDays}"
+                                                               TrackBrush="{DynamicResource TransparentBrush}"
+                                                               StrokeBrush="{DynamicResource AccentBrush}"
+                                                               StrokeThickness="1.2"
+                                                               DotRadius="2.3" />
+
+                                <Border HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="0,0,2,0"
+                                        Padding="9,6"
+                                        Panel.ZIndex="4"
+                                        Background="{DynamicResource ToolTipBackgroundBrush}"
+                                        BorderThickness="0"
+                                        CornerRadius="{DynamicResource ToolTipCornerRadius}"
+                                        IsHitTestVisible="False">
+                                    <Border.Style>
+                                        <Style TargetType="{x:Type Border}">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HoveredWeeklyQuotaDay}"
+                                                             Value="{x:Null}">
+                                                    <Setter Property="Visibility"
+                                                            Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel>
+                                        <TextBlock FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}">
+                            <Run Text="{Binding HoveredWeeklyQuotaDay.LongDateLabel, Mode=OneWay}" />
+                                            <Run Text="  " />
+                                            <Run Text="{Binding HoveredWeeklyQuotaDay.ClosingDisplay, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <TextBlock Margin="0,2,0,0"
+                                                   FontSize="9"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}">
+                                            <Run Text="{Binding HoveredWeeklyQuotaDay.ChangeDisplay, Mode=OneWay}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding HoveredWeeklyQuotaDay.LastObservedDisplay, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text="{DynamicResource Loc.LoadingWeeklyHistory}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="{x:Type TextBlock}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding HasWeeklyQuotaData}"
+                                                                   Value="False" />
+                                                        <Condition Binding="{Binding IsWeeklyQuotaLoading}"
+                                                                   Value="True" />
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <TextBlock HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{Binding WeeklyQuotaStatusText}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="{x:Type TextBlock}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding HasWeeklyQuotaData}"
+                                                                   Value="False" />
+                                                        <Condition Binding="{Binding IsWeeklyQuotaLoading}"
+                                                                   Value="False" />
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Margin="0,0,8,0"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center"
+                                           FontSize="9"
+                                           Foreground="{DynamicResource MutedTextBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Text="{Binding WeeklyQuotaStatusText}" />
+                                <TextBlock Grid.Column="1"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           FontSize="9"
+                                           Foreground="{DynamicResource MutedTextBrush}"
+                                           Text="{DynamicResource Loc.WeeklyQuotaFootnote}" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

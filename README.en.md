@@ -1,0 +1,323 @@
+**[中文](README.md) | English**
+
+# Codex Usage Widget
+
+A local-only Windows 11 desktop widget for monitoring remaining Codex quota
+and per-task token usage. It is built with WPF, .NET 8, SQLite, and MVVM, and
+is published as a self-contained, single-file Windows x64 executable. Users do
+not need to install .NET.
+
+> This is an unofficial community project. It is not affiliated with,
+> sponsored by, or endorsed by OpenAI.
+
+## Download
+
+Download `CodexUsageWidget.exe` from
+[GitHub Releases](../../releases/latest). It is a self-contained Windows x64
+single file and does not require a separate .NET installation. The current
+binary is not code-signed, so Windows SmartScreen may warn on first launch;
+verify the SHA-256 published on the Release page before running it.
+
+`dist\CodexUsageWidget.exe` is a local build output and is intentionally not
+stored in Git history.
+
+## Interface
+
+Choose either an 80×80 circle or a 208×80 capsule under
+**Appearance → Idle style**. Both are transparent desktop idle surfaces that
+keep only the remaining percentage and lightweight status information.
+Hovering expands the selected style directly into a 420×540 detail panel,
+with no short-lived intermediate state. The panel can be pinned, or it
+collapses immediately back to the selected style when the pointer leaves.
+New installations default to the circle.
+
+The collapsed indicator is the fixed position anchor. The panel expands to the
+right when space is available and to the left otherwise; it expands upward
+when there is not enough room below. Collapsing always returns the indicator
+to exactly the same anchor position.
+
+The heartbeat-shaped segment at the bottom of the circular indicator is part
+of the progress track, not a separate decoration. It lights only after the
+progress reaches that segment.
+
+The capsule status and waveform color follow the remaining quota: 70% and
+above is “Plenty left,” 30%–69% is “Usage stable,” 10%–29% is “Quota low,”
+1%–9% is “Almost empty,” and 0% is “Empty.” Initial loading can also show
+“Syncing” or “Waiting.” Circle and capsule share the same policy, which is
+recomputed only on existing quota events and adds no polling. Capsule numbers,
+labels, and status colors use dedicated high-contrast light/dark palettes. The
+capsule does not use the shadow effect that can produce a rectangular clipped
+surface, and its desktop snapshot is independently clipped to the rounded
+shape so pixels outside the capsule remain fully transparent.
+
+| Default circle | Optional capsule | Expanded panel |
+|---|---|---|
+| ![Default circle](docs/screenshots/final-collapsed.png) | ![Optional capsule](docs/screenshots/idle-capsule-collapsed.png) | ![Expanded panel](docs/screenshots/expanded.png) |
+
+These public screenshots come from the current validation batch for one final
+EXE. `capture-ui.ps1` generates the default circle and expanded panel, while
+`audit-idle-styles.ps1` generates the capsule. Window dimensions, interaction
+results, and the tested EXE hash are recorded in
+[`ui-audit.json`](docs/screenshots/ui-audit.json) and
+[`idle-style-audit.json`](docs/idle-style-audit.json); both reports record the
+same SHA-256. Regenerate the corresponding set after publishing a different
+EXE; screenshots from different hash batches must not be treated as one final
+validation run. The comprehensive UI audit also moves the real pointer onto a
+weekly-quota date node and verifies that showing its tooltip does not
+terminate the application.
+
+Only one Vision Glass visual style is included. It adapts to
+System / Light / Dark theme modes while preserving the same layout,
+interaction, and material language. Light and dark modes use separate
+secondary-text contrast values, and summary figures retain normal weight for
+readability on complex desktop backgrounds.
+
+The glass material does not use native Windows Acrylic. On explicit events
+only—load, expand/collapse, theme or DPI changes, the end of a drag, or manual
+refresh—the app captures the desktop directly beneath the widget once. It
+software-blurs that snapshot on a background thread and uses the frozen image
+inside the WPF surface. There is no continuous screen capture, live backdrop
+blur, rendering loop, or always-running animation.
+
+Appearance includes a `0%–100%` glass-transparency slider. Higher values make
+the main glass background more transparent. At `100%`, the main tint and
+frosted snapshot disappear completely, while text, icons, progress lines, and
+status colors remain fully opaque. Changes preview immediately; Cancel restores
+the previous value and Save persists it. Moving the slider only changes
+in-memory brush opacity and does not recapture the desktop, read logs, query
+statistics, or write SQLite.
+
+Neither idle nor expanded state draws an extra rectangular base or decorative
+frame. The 80×80 circle uses a circular surface; the 208×80 capsule and
+420×540 panel use their own rounded surfaces. The rest of the window remains
+per-pixel transparent.
+
+The “weekly used” value and seven-day sparkline are global quota status, not
+content owned by a token-usage tab. They therefore remain present on Today,
+7 Days, Month, and All views. Selecting the status opens the seven-day detail
+inside the same 420×540 window rather than creating another window:
+
+![Seven-day weekly quota observations](docs/screenshots/weekly-quota-overlay.png)
+
+The four token periods are:
+
+- **Today**: the current local calendar day.
+- **7 Days**: the rolling 168 hours immediately before the current time.
+- **Month**: from the first day of the current local month through now.
+- **All**: logs still present locally or previously indexed by this widget.
+
+Each period displays at most ten rows. The first nine are real tasks; when
+more than nine tasks exist, row ten is a non-expandable **Other** aggregate.
+The footer summarizes input, output, cached input, reasoning output, and total
+tokens, with `Top 9 + Other = Total`. Sub-agent, approval-agent, and parallel
+agent usage is assigned to the corresponding root task.
+
+Token units follow the selected interface language, retain at most two decimal
+places, and omit insignificant trailing zeros:
+
+- **Simplified Chinese**: full integers below 10,000, then
+  `万 / 亿 / 万亿`; for example `9,876`, `6.03亿`, and `1.01万亿`.
+- **English**: full integers below 1,000, then `K / M / B / T`; for example
+  `9,876` becomes `9.88K`, and `602,820,000` becomes `602.82M`.
+
+## Usage and settings
+
+Run `dist\CodexUsageWidget.exe`. The app supports on-demand incremental
+refresh, always-on-top mode, immediate auto-collapse, Codex Home selection,
+persisted window position, and persisted active period. Only one instance can
+run at a time.
+
+Theme modes:
+
+- **Follow system (System)**: the default for new installations. Windows
+  light/dark changes are received through system events, without polling.
+- **Light**
+- **Dark**
+
+Language modes:
+
+- **Follow system (System)**: any Windows UI culture in the `zh-*` family uses
+  Simplified Chinese; all other cultures use English.
+- **简体中文**
+- **English**
+
+Settings are ordered by usage frequency:
+**Appearance → Resident behavior → Data source → Maintenance**. Theme,
+language, idle style, and glass transparency are all in the first Appearance
+group. Idle styles:
+
+- **Circle**: 80×80, the default and most compact option.
+- **Capsule**: 208×80, with a short persistent status beside the percentage.
+
+Switching idle style adds no polling, log reads, or SQLite queries. Both styles
+use the same event-driven refresh policy while idle.
+
+Saving a language change updates the main window, settings, system tray,
+tooltips, date formats, and token units in the current process; no restart is
+required. A language change only swaps small in-memory string resources. It
+does not scan logs, refresh statistics, query SQLite, or rebuild the file
+watcher, so its steady-state resource cost is negligible. Task titles come
+from local Codex logs and are preserved as-is rather than machine-translated.
+
+The System / Light / Dark variants and global weekly-quota overlay are
+validated together by `capture-themes.ps1`. The current
+[`theme-audit.json`](docs/screenshots/theme-audit.json) records PASS for all
+three modes, seven weekly-quota date elements in each mode, and an unchanged
+top-level HWND count of `1 → 1` while opening the overlay. The
+[dark](docs/screenshots/theme-dark.png),
+[light](docs/screenshots/theme-light.png), and
+[system](docs/screenshots/theme-system.png) screenshots and their overlay
+counterparts are generated by that run. Its report includes the tested EXE
+hash and must be regenerated after a new build.
+
+The settings window has a logical size of 460×590. Older settings remain
+compatible; the obsolete collapse-delay input is no longer shown.
+
+The system tray menu provides:
+
+- Show / hide
+- Refresh now
+- Settings
+- Start with Windows
+- Exit
+
+The tray and EXE icons use an original transparent three-loop hollow-line mark
+instead of a filled disc and center dot. Tray strokes switch between dark and
+light with the system theme, while a short status accent changes between green,
+yellow, orange, and red. The EXE embeds dedicated sizes from 16 through 256
+pixels to keep the mark crisp at notification-area scale.
+
+Start with Windows is disabled by default and writes a Windows startup entry
+only after the user explicitly enables it.
+
+## Data source and accounting
+
+The app reads only these files under the selected Codex Home:
+
+```text
+sessions\**\*.jsonl
+archived_sessions\**\*.jsonl
+session_index.jsonl
+```
+
+- Total tokens = input tokens + output tokens.
+- Cached input is already included in input, and reasoning output is already
+  included in output; neither is counted twice.
+- Period totals use deltas between adjacent cumulative counters and handle
+  independent counter resets, file growth, truncation, and rewrites.
+- Remaining percentage comes from the newest local `rate_limits` event. When
+  absent, the widget shows `--` instead of guessing a quota from total usage.
+- Weekly-quota details read only the exact `limit_id=codex`, 10,080-minute
+  window. Each of the seven bars and line points represents that local
+  calendar day's last directly observed “weekly used” percentage.
+- A daily net change is shown only when both adjacent days have observations;
+  decreases remain negative. The widget does not reinterpret rolling-window
+  recovery or an older concurrent snapshot as gross usage added that day.
+- Historical observations already present in local logs or the index can be
+  viewed immediately. New observations are incrementally indexed only after
+  an explicit statistics refresh or opening the weekly-quota detail. A blank
+  day means no local observation was available.
+- Startup performs one latest-quota calibration. The first run builds one
+  single-threaded background history index; later runs process only new or
+  changed statistical content.
+- Collapsed mode has no fixed 30-second poll, periodic ranking query, or
+  periodic SQLite write. Log changes trigger quota-only tail reading after
+  roughly 1.5 seconds of quiet, or at most once every roughly 3 seconds during
+  continuous writes. The UI is not updated when quota is unchanged.
+- Hover expansion returns to Today and refreshes only Today. Selecting a
+  period—including selecting the current period again—refreshes only that
+  period. Manual refresh updates the active period and quota.
+- Seven-day weekly-quota history is queried only after selecting its top-level
+  entry. Collapse, hover expansion, token-tab changes, and the quota watcher
+  do not query it automatically.
+- A pinned panel never refreshes statistics by itself. Period selection or
+  manual refresh remains required, while quota may still update from log
+  events.
+
+## Privacy and local storage
+
+The app does not connect to the network or upload data. It does not read
+`auth.json`, passwords, access tokens, user prompts, or conversation bodies.
+SQLite stores only the task identifiers, titles, time buckets, token counters,
+and incremental-file state needed for statistics.
+
+Settings and indexes are stored under:
+
+```text
+%LocalAppData%\CodexUsageWidget
+```
+
+Each Codex Home gets a separate database based on a hash of its normalized
+path, for example:
+
+```text
+usage-index-<home-hash>.db
+```
+
+Statistics from different Codex Home directories are therefore never mixed.
+
+## Build and validation
+
+Building requires Windows 10/11, PowerShell 5.1 or later, and the .NET 8 SDK.
+
+Repository scripts:
+
+```powershell
+.\scripts\test.ps1
+.\scripts\build.ps1
+.\scripts\measure-idle.ps1
+.\scripts\capture-ui.ps1
+.\scripts\capture-themes.ps1
+.\scripts\audit-localization.ps1
+.\scripts\audit-idle-styles.ps1
+.\scripts\generate-app-icon.ps1
+```
+
+`build.ps1` runs tests first, then publishes a self-contained single-file
+`win-x64` executable to `dist`. See the current
+[validation report](docs/validation-report.md) for the exact test count,
+package hash, and local measurements, and the
+[performance report](docs/performance-report.md) for the low-resource
+validation method.
+
+`audit-localization.ps1` uses stable UI Automation IDs to open settings and
+perform a bidirectional `Simplified Chinese → English → Simplified Chinese`
+switch. It verifies that critical English UI text is actually visible and
+that the setting was persisted, without relying on screen coordinates. The
+script restores the original settings afterward and writes
+`docs/localization-audit.json`.
+
+`audit-idle-styles.ps1` backs up and restores the original settings, launches
+both idle styles, and verifies direct `80×80 / 208×80 → 420×540` hover
+expansion with no observable intermediate top-level window size. It writes
+`docs/idle-style-audit.json` plus screenshots for both styles. Idle resource
+measurements can also be run separately:
+
+```powershell
+.\scripts\measure-idle.ps1 -CollapsedMode Circle
+.\scripts\measure-idle.ps1 -CollapsedMode Capsule
+```
+
+## Known limitations
+
+- **All** covers only logs still present locally or previously indexed by this
+  widget. It is not a cross-device total, service billing record, or recovery
+  of deleted history that was never indexed.
+- Remaining quota depends on local `rate_limits` events and cannot reveal an
+  unpublished fixed Codex token limit.
+- Weekly quota is a rolling-window log observation, not a service billing
+  ledger. The widget can display each day's final observation and adjacent-day
+  net change, but those snapshots cannot uniquely reconstruct gross daily
+  usage.
+- Codex logs are an internal format. Future schema changes may require parser
+  updates; the local index can be rebuilt from Settings.
+- Initial indexing time depends on local log volume and disk performance.
+- If the file watcher misses an event, quota may briefly lag. Startup, system
+  resume, hover expansion, and manual refresh perform calibration without
+  restoring a fixed poll.
+- Built-in UI languages are currently Simplified Chinese and English.
+  Follow-system mode falls back to English for every other locale.
+
+## License
+
+This project is available under the [MIT License](LICENSE).

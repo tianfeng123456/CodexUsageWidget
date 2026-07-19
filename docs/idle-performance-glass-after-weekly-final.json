@@ -1,0 +1,71 @@
+{
+    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
+    "sha256":  "B76C9A0B44886BC9EF86C56FF1B19E21F4A9F0F40B3F130CEC07FCC177618ABB",
+    "executableBytes":  164005359,
+    "startedAt":  "2026-07-19T16:47:43.5938453+08:00",
+    "completedAt":  "2026-07-19T16:48:49.2851783+08:00",
+    "warmupSeconds":  12,
+    "indexStabilitySeconds":  5,
+    "observationSeconds":  65.016,
+    "primeWeeklyQuotaOverlay":  true,
+    "primeFromPinnedStartup":  false,
+    "automationTimeoutMilliseconds":  8000,
+    "weeklyQuotaPriming":  {
+                               "requested":  true,
+                               "performed":  true,
+                               "startMode":  "Hover",
+                               "trendButtonAutomationId":  "WeeklyQuotaTrendButton",
+                               "overlayAutomationId":  "WeeklyQuotaOverlay",
+                               "closeButtonAutomationId":  "WeeklyQuotaCloseButton",
+                               "openedAt":  "2026-07-19T16:47:38.3380553+08:00",
+                               "closedAt":  "2026-07-19T16:47:38.4219330+08:00",
+                               "expandedLogicalWidth":  420,
+                               "expandedLogicalHeight":  540,
+                               "recollapsedLogicalWidth":  80,
+                               "recollapsedLogicalHeight":  80
+                           },
+    "windowLogicalWidth":  80,
+    "windowLogicalHeight":  80,
+    "windowDpi":  192,
+    "startWindowLogicalWidth":  80,
+    "startWindowLogicalHeight":  80,
+    "startWindowDpi":  192,
+    "collapsedAtObservationStart":  true,
+    "endWindowLogicalWidth":  80,
+    "endWindowLogicalHeight":  80,
+    "endWindowDpi":  192,
+    "collapsedAtObservationEnd":  true,
+    "warmupDatabaseChanges":  [
+                                  {
+                                      "path":  "%LOCALAPPDATA%\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-shm",
+                                      "before":  {
+                                                     "length":  32768,
+                                                     "lastWriteTimeUtc":  "2026-07-19T08:45:11.2943071Z"
+                                                 },
+                                      "after":  {
+                                                    "length":  32768,
+                                                    "lastWriteTimeUtc":  "2026-07-19T08:47:26.6878833Z"
+                                                }
+                                  }
+                              ],
+    "stabilityDatabaseChanges":  [
+
+                                 ],
+    "processorCount":  16,
+    "cpuDeltaSeconds":  0.03125,
+    "singleCoreCpuPercent":  0.0481,
+    "wholeMachineCpuPercent":  0.003,
+    "privateMemoryBytes":  109953024,
+    "workingSetBytes":  213422080,
+    "peakPrivateMemoryBytes":  121769984,
+    "peakWorkingSetBytes":  225165312,
+    "databaseFileCount":  3,
+    "databaseChanges":  [
+
+                        ],
+    "databaseWritesObserved":  false,
+    "validationPassed":  true,
+    "validationFailures":  [
+
+                           ]
+}

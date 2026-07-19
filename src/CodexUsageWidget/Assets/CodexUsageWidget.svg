@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <mask id="hollow-center">
+      <rect width="32" height="32" fill="white" />
+      <circle cx="16" cy="16" r="2.1" fill="black" />
+    </mask>
+  </defs>
+  <g fill="none"
+     stroke="#181d1b"
+     stroke-width="2.05"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     mask="url(#hollow-center)">
+    <ellipse cx="16" cy="16" rx="9.25" ry="4.4" />
+    <ellipse cx="16" cy="16" rx="9.25" ry="4.4"
+             transform="rotate(60 16 16)" />
+    <ellipse cx="16" cy="16" rx="9.25" ry="4.4"
+             transform="rotate(120 16 16)" />
+  </g>
+  <circle cx="16" cy="16" r="13.6"
+          fill="none"
+          stroke="#087a4b"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-dasharray="13.8 85.5"
+          transform="rotate(-82 16 16)" />
+</svg>

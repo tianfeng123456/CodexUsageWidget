@@ -1,0 +1,69 @@
+{
+    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
+    "sha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
+    "executableBytes":  164086767,
+    "startedAt":  "2026-07-19T22:54:56.7066237+08:00",
+    "completedAt":  "2026-07-19T22:56:02.3703398+08:00",
+    "warmupSeconds":  12,
+    "indexStabilitySeconds":  5,
+    "observationSeconds":  65.013,
+    "primeWeeklyQuotaOverlay":  false,
+    "primeFromPinnedStartup":  false,
+    "collapsedMode":  "Circle",
+    "expectedCollapsedLogicalWidth":  80,
+    "expectedCollapsedLogicalHeight":  80,
+    "automationTimeoutMilliseconds":  8000,
+    "weeklyQuotaPriming":  {
+                               "requested":  false,
+                               "performed":  false
+                           },
+    "windowLogicalWidth":  80,
+    "windowLogicalHeight":  80,
+    "windowDpi":  192,
+    "startWindowLogicalWidth":  80,
+    "startWindowLogicalHeight":  80,
+    "startWindowDpi":  192,
+    "collapsedAtObservationStart":  true,
+    "endWindowLogicalWidth":  80,
+    "endWindowLogicalHeight":  80,
+    "endWindowDpi":  192,
+    "collapsedAtObservationEnd":  true,
+    "warmupDatabaseChanges":  [
+                                  {
+                                      "path":  "%LOCALAPPDATA%\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-shm",
+                                      "before":  null,
+                                      "after":  {
+                                                    "length":  32768,
+                                                    "lastWriteTimeUtc":  "2026-07-19T14:54:40.4931751Z"
+                                                }
+                                  },
+                                  {
+                                      "path":  "%LOCALAPPDATA%\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-wal",
+                                      "before":  null,
+                                      "after":  {
+                                                    "length":  0,
+                                                    "lastWriteTimeUtc":  "2026-07-19T14:54:40.4921753Z"
+                                                }
+                                  }
+                              ],
+    "stabilityDatabaseChanges":  [
+
+                                 ],
+    "processorCount":  16,
+    "cpuDeltaSeconds":  0.1875,
+    "singleCoreCpuPercent":  0.2884,
+    "wholeMachineCpuPercent":  0.018,
+    "privateMemoryBytes":  80977920,
+    "workingSetBytes":  173305856,
+    "peakPrivateMemoryBytes":  81084416,
+    "peakWorkingSetBytes":  173756416,
+    "databaseFileCount":  3,
+    "databaseChanges":  [
+
+                        ],
+    "databaseWritesObserved":  false,
+    "validationPassed":  true,
+    "validationFailures":  [
+
+                           ]
+}

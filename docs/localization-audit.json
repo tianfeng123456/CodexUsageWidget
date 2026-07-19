@@ -1,0 +1,48 @@
+{
+    "capturedAt":  "2026-07-19T22:53:31.1488397+08:00",
+    "status":  "PASS",
+    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
+    "executableSha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
+    "executableBytes":  164086767,
+    "selectors":  {
+                      "settingsButton":  "SettingsButton",
+                      "themeModeComboBox":  "ThemeModeComboBox",
+                      "languageModeComboBox":  "LanguageModeComboBox",
+                      "collapsedModeComboBox":  "CollapsedModeComboBox"
+                  },
+    "transitions":  [
+                        {
+                            "from":  "zh-Hans",
+                            "to":  "English",
+                            "persistedValue":  "en",
+                            "visibleMainText":  [
+                                                    "Remaining quota",
+                                                    "Today",
+                                                    "7 Days",
+                                                    "Month",
+                                                    "All"
+                                                ],
+                            "visibleSettingsText":  [
+                                                        "Settings",
+                                                        "Appearance",
+                                                        "Language",
+                                                        "Idle style",
+                                                        "Save settings"
+                                                    ]
+                        },
+                        {
+                            "from":  "English",
+                            "to":  "zh-Hans",
+                            "persistedValue":  "zh-Hans",
+                            "visibleMainText":  [
+                                                    "剩余额度",
+                                                    "今日",
+                                                    "近7日",
+                                                    "本月",
+                                                    "累计"
+                                                ]
+                        }
+                    ],
+    "interaction":  "UI Automation focus plus standard keyboard messages; no coordinate-based selectors",
+    "originalSettingsRestored":  true
+}

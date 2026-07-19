@@ -1,0 +1,64 @@
+{
+    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
+    "sha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
+    "executableBytes":  164086767,
+    "startedAt":  "2026-07-19T22:56:52.5063974+08:00",
+    "completedAt":  "2026-07-19T22:57:58.1966489+08:00",
+    "warmupSeconds":  12,
+    "indexStabilitySeconds":  5,
+    "observationSeconds":  65.023,
+    "primeWeeklyQuotaOverlay":  false,
+    "primeFromPinnedStartup":  false,
+    "collapsedMode":  "Capsule",
+    "expectedCollapsedLogicalWidth":  208,
+    "expectedCollapsedLogicalHeight":  80,
+    "automationTimeoutMilliseconds":  8000,
+    "weeklyQuotaPriming":  {
+                               "requested":  false,
+                               "performed":  false
+                           },
+    "windowLogicalWidth":  208,
+    "windowLogicalHeight":  80,
+    "windowDpi":  192,
+    "startWindowLogicalWidth":  208,
+    "startWindowLogicalHeight":  80,
+    "startWindowDpi":  192,
+    "collapsedAtObservationStart":  true,
+    "endWindowLogicalWidth":  208,
+    "endWindowLogicalHeight":  80,
+    "endWindowDpi":  192,
+    "collapsedAtObservationEnd":  true,
+    "warmupDatabaseChanges":  [
+                                  {
+                                      "path":  "%LOCALAPPDATA%\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-shm",
+                                      "before":  {
+                                                     "length":  32768,
+                                                     "lastWriteTimeUtc":  "2026-07-19T14:54:40.4931751Z"
+                                                 },
+                                      "after":  {
+                                                    "length":  32768,
+                                                    "lastWriteTimeUtc":  "2026-07-19T14:56:36.2676265Z"
+                                                }
+                                  }
+                              ],
+    "stabilityDatabaseChanges":  [
+
+                                 ],
+    "processorCount":  16,
+    "cpuDeltaSeconds":  0.0625,
+    "singleCoreCpuPercent":  0.0961,
+    "wholeMachineCpuPercent":  0.006,
+    "privateMemoryBytes":  83087360,
+    "workingSetBytes":  174358528,
+    "peakPrivateMemoryBytes":  83320832,
+    "peakWorkingSetBytes":  174653440,
+    "databaseFileCount":  3,
+    "databaseChanges":  [
+
+                        ],
+    "databaseWritesObserved":  false,
+    "validationPassed":  true,
+    "validationFailures":  [
+
+                           ]
+}
