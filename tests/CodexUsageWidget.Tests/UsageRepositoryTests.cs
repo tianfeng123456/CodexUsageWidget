@@ -342,7 +342,7 @@ public sealed class UsageRepositoryTests
     {
         using var temporary = new TemporaryDirectory();
         var repository = await CreateRepositoryAsync(temporary);
-        var reset = new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero);
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
         var baselineAt =
             new DateTimeOffset(2026, 7, 17, 23, 0, 0, TimeSpan.Zero);
         var oldFormatAt =
@@ -411,6 +411,10 @@ public sealed class UsageRepositoryTests
 
         Assert.Equal(2, history.Count);
         Assert.Equal(new DateOnly(2026, 7, 17), history[0].LocalDate);
+        Assert.Equal(
+            10d,
+            history[0].ConsumedPercentagePoints!.Value,
+            6);
         Assert.Null(history[0].ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(10d, history[0].LastObservedUsedPercent);
         Assert.Equal(baselineAt, history[0].LastObservedAt);
@@ -419,11 +423,15 @@ public sealed class UsageRepositoryTests
         Assert.Equal(new DateOnly(2026, 7, 18), history[1].LocalDate);
         Assert.Equal(
             10d,
+            history[1].ConsumedPercentagePoints!.Value,
+            6);
+        Assert.Equal(
+            0d,
             history[1].ChangeFromPreviousDayPercentagePoints!.Value,
             6);
         Assert.Equal(20d, history[1].LastObservedUsedPercent);
         Assert.Equal(newFormatAt, history[1].LastObservedAt);
-        Assert.Equal(3, history[1].ObservationCount);
+        Assert.Equal(2, history[1].ObservationCount);
         Assert.False(history[1].IsPartial);
     }
 
@@ -438,7 +446,7 @@ public sealed class UsageRepositoryTests
         await repository.InitializeAsync();
         var path = temporary.GetPath($"rollout-{RootId}.jsonl");
         var reset =
-            new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero);
+            new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
 
         await TestLog.WriteLinesAsync(
             path,
@@ -488,8 +496,10 @@ public sealed class UsageRepositoryTests
 
         var day = history[1];
         Assert.Equal(new DateOnly(2026, 7, 18), day.LocalDate);
+        Assert.Equal(10d, history[0].ConsumedPercentagePoints!.Value, 6);
+        Assert.Equal(6d, day.ConsumedPercentagePoints!.Value, 6);
         Assert.Equal(
-            6d,
+            -4d,
             day.ChangeFromPreviousDayPercentagePoints!.Value,
             6);
         Assert.Equal(16d, day.LastObservedUsedPercent);
@@ -507,7 +517,7 @@ public sealed class UsageRepositoryTests
     }
 
     [Fact]
-    public async Task QueryWeeklyRateLimitDailyUsage_ResetProducesNegativeDirectChange()
+    public async Task QueryWeeklyRateLimitDailyUsage_ResetStartsNewEpochWithoutNegativeUsage()
     {
         using var temporary = new TemporaryDirectory();
         var repository = await CreateRepositoryAsync(temporary);
@@ -542,6 +552,10 @@ public sealed class UsageRepositoryTests
             new DateTimeOffset(2026, 7, 20, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Equal(2, history.Count);
+        Assert.Equal(
+            10d,
+            history[0].ConsumedPercentagePoints!.Value,
+            6);
         Assert.Null(history[0].ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(90d, history[0].LastObservedUsedPercent);
         Assert.Equal(
@@ -551,9 +565,10 @@ public sealed class UsageRepositoryTests
         Assert.True(history[0].IsPartial);
 
         Assert.Equal(
-            -78d,
-            history[1].ChangeFromPreviousDayPercentagePoints!.Value,
+            12d,
+            history[1].ConsumedPercentagePoints!.Value,
             6);
+        Assert.Null(history[1].ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(12d, history[1].LastObservedUsedPercent);
         Assert.Equal(
             new DateTimeOffset(2026, 7, 19, 3, 0, 0, TimeSpan.Zero),
@@ -588,22 +603,205 @@ public sealed class UsageRepositoryTests
             new DateTimeOffset(2026, 7, 23, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Equal(3, history.Count);
+        Assert.Equal(
+            30d,
+            history[0].ConsumedPercentagePoints!.Value,
+            6);
         Assert.Null(history[0].ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(30d, history[0].LastObservedUsedPercent);
         Assert.Equal(1, history[0].ObservationCount);
         Assert.False(history[0].IsPartial);
 
         Assert.Equal(new DateOnly(2026, 7, 21), history[1].LocalDate);
+        Assert.Null(history[1].ConsumedPercentagePoints);
         Assert.Null(history[1].ChangeFromPreviousDayPercentagePoints);
         Assert.Null(history[1].LastObservedUsedPercent);
         Assert.Null(history[1].LastObservedAt);
         Assert.Equal(0, history[1].ObservationCount);
         Assert.True(history[1].IsPartial);
 
+        Assert.Equal(
+            5d,
+            history[2].ConsumedPercentagePoints!.Value,
+            6);
         Assert.Null(history[2].ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(35d, history[2].LastObservedUsedPercent);
         Assert.Equal(1, history[2].ObservationCount);
         Assert.False(history[2].IsPartial);
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_CrossDayFlatValueDoesNotCarryUsageForward()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var path = temporary.GetPath($"rollout-{RootId}.jsonl");
+        var reset =
+            new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 19, 23, 0, 0, TimeSpan.Zero),
+                88d,
+                reset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 20, 23, 0, 0, TimeSpan.Zero),
+                88d,
+                reset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 10, 0, 0, TimeSpan.Zero),
+                89d,
+                reset));
+        await repository.IndexFileAsync(path, false);
+
+        var history = await repository.QueryWeeklyRateLimitDailyUsageAsync(
+            new DateTimeOffset(2026, 7, 20, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 7, 22, 0, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(new DateOnly(2026, 7, 20), history[0].LocalDate);
+        Assert.Equal(
+            0d,
+            history[0].ConsumedPercentagePoints!.Value,
+            6);
+        Assert.Equal(88d, history[0].LastObservedUsedPercent);
+        Assert.False(history[0].IsPartial);
+
+        Assert.Equal(new DateOnly(2026, 7, 21), history[1].LocalDate);
+        Assert.Equal(
+            1d,
+            history[1].ConsumedPercentagePoints!.Value,
+            6);
+        Assert.Equal(
+            1d,
+            history[1].ChangeFromPreviousDayPercentagePoints!.Value,
+            6);
+        Assert.Equal(89d, history[1].LastObservedUsedPercent);
+        Assert.False(history[1].IsPartial);
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_StaleRollbackDoesNotChangeAcceptedObservation()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var path = temporary.GetPath($"rollout-{RootId}.jsonl");
+        var reset =
+            new DateTimeOffset(2026, 7, 27, 0, 0, 0, TimeSpan.Zero);
+        var acceptedAt =
+            new DateTimeOffset(2026, 7, 21, 2, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 20, 23, 0, 0, TimeSpan.Zero),
+                40d,
+                reset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 1, 0, 0, TimeSpan.Zero),
+                41d,
+                reset),
+            TestLog.WeeklyRateLimit(acceptedAt, 43d, reset),
+            // A concurrent session can emit an older cumulative snapshot later.
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 3, 0, 0, TimeSpan.Zero),
+                39d,
+                reset));
+        await repository.IndexFileAsync(path, false);
+
+        var day = Assert.Single(
+            await repository.QueryWeeklyRateLimitDailyUsageAsync(
+                new DateTimeOffset(2026, 7, 21, 0, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 7, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(3d, day.ConsumedPercentagePoints!.Value, 6);
+        Assert.Equal(43d, day.LastObservedUsedPercent);
+        Assert.Equal(acceptedAt, day.LastObservedAt);
+        Assert.Equal(2, day.ObservationCount);
+        Assert.False(day.IsPartial);
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_ResetInsideDayAddsBothEpochs()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var path = temporary.GetPath($"rollout-{RootId}.jsonl");
+        var firstReset =
+            new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
+        var secondReset = firstReset.AddDays(7);
+        var lastAcceptedAt =
+            new DateTimeOffset(2026, 7, 21, 13, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 20, 23, 0, 0, TimeSpan.Zero),
+                70d,
+                firstReset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 8, 0, 0, TimeSpan.Zero),
+                75d,
+                firstReset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 12, 5, 0, TimeSpan.Zero),
+                4d,
+                secondReset),
+            // This old-window row arrived after that window had reset.
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 21, 12, 10, 0, TimeSpan.Zero),
+                76d,
+                firstReset),
+            TestLog.WeeklyRateLimit(lastAcceptedAt, 6d, secondReset));
+        await repository.IndexFileAsync(path, false);
+
+        var day = Assert.Single(
+            await repository.QueryWeeklyRateLimitDailyUsageAsync(
+                new DateTimeOffset(2026, 7, 21, 0, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 7, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(11d, day.ConsumedPercentagePoints!.Value, 6);
+        Assert.Equal(6d, day.LastObservedUsedPercent);
+        Assert.Equal(lastAcceptedAt, day.LastObservedAt);
+        Assert.Equal(3, day.ObservationCount);
+        Assert.False(day.IsPartial);
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_MissingBaselineReportsOnlyKnownIncreaseAsPartial()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var path = temporary.GetPath($"rollout-{RootId}.jsonl");
+        var reset =
+            new DateTimeOffset(2026, 7, 28, 12, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 22, 10, 0, 0, TimeSpan.Zero),
+                35d,
+                reset),
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 22, 18, 0, 0, TimeSpan.Zero),
+                40d,
+                reset));
+        await repository.IndexFileAsync(path, false);
+
+        var day = Assert.Single(
+            await repository.QueryWeeklyRateLimitDailyUsageAsync(
+                new DateTimeOffset(2026, 7, 22, 0, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 7, 23, 0, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(5d, day.ConsumedPercentagePoints!.Value, 6);
+        Assert.Equal(40d, day.LastObservedUsedPercent);
+        Assert.Equal(2, day.ObservationCount);
+        Assert.True(day.IsPartial);
     }
 
     [Fact]

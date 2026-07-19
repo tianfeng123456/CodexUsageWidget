@@ -44,6 +44,8 @@ public sealed class AppSettings
 
     public bool StartWithWindows { get; set; }
 
+    public bool PauseMonitoringWhenDisplayOff { get; set; } = true;
+
     public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
 
     public string LanguageMode { get; set; } = nameof(AppLanguageMode.System);

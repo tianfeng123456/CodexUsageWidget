@@ -53,7 +53,7 @@ public sealed class UsageIndexServiceTests
         Directory.CreateDirectory(sessions);
         const string id = "44444444-4444-4444-4444-444444444444";
         var path = System.IO.Path.Combine(sessions, $"rollout-{id}.jsonl");
-        var reset = new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero);
+        var reset = new DateTimeOffset(2026, 7, 23, 23, 0, 0, TimeSpan.Zero);
         await TestLog.WriteLinesAsync(
             path,
             TestLog.SessionMeta(id, id),
@@ -78,12 +78,11 @@ public sealed class UsageIndexServiceTests
             new DateTimeOffset(2026, 7, 19, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Equal(2, history.Count);
+        Assert.Equal(0d, history[0].ConsumedPercentagePoints);
         Assert.Null(history[0].ChangeFromPreviousDayPercentagePoints);
         var day = history[1];
-        Assert.Equal(
-            6d,
-            day.ChangeFromPreviousDayPercentagePoints!.Value,
-            6);
+        Assert.Equal(6d, day.ConsumedPercentagePoints);
+        Assert.Null(day.ChangeFromPreviousDayPercentagePoints);
         Assert.Equal(46d, day.LastObservedUsedPercent);
         Assert.Equal(
             new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero),

@@ -276,6 +276,29 @@ public sealed class LocalizationResourceContractTests
     }
 
     [Fact]
+    public void SettingsWindow_ExposesDisplayOffMonitoringPauseContract()
+    {
+        string content = File.ReadAllText(
+            FindRepositoryFile(SettingsWindowPath));
+        string settings = File.ReadAllText(
+            FindRepositoryFile(AppSettingsPath));
+
+        Assert.Contains(
+            "AutomationProperties.AutomationId=" +
+            "\"PauseMonitoringWhenDisplayOffCheckBox\"",
+            content,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Loc.PauseMonitoringWhenDisplayOffDescription",
+            content,
+            StringComparison.Ordinal);
+        Assert.Matches(
+            @"public\s+bool\s+PauseMonitoringWhenDisplayOff\s*" +
+            @"\{\s*get;\s*set;\s*\}\s*=\s*true",
+            settings);
+    }
+
+    [Fact]
     public void AppSettings_CollapsedModeDefaultsAndFallsBackToCircle()
     {
         string content = File.ReadAllText(

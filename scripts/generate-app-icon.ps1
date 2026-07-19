@@ -38,68 +38,91 @@ function New-HollowLineIconPng {
 
         $scale = $Size / 32.0
         $center = $Size / 2.0
-        $lineWidth = [Math]::Max(1.15, 2.05 * $scale)
+        $lineWidth = [Math]::Max(1.7, 3.0 * $scale)
         $linePen = New-Object System.Drawing.Pen(
-            [System.Drawing.Color]::FromArgb(245, 24, 29, 27),
+            [System.Drawing.Color]::FromArgb(255, 16, 21, 18),
             [single]$lineWidth)
         try {
             $linePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
             $linePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
             $linePen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-            $loopWidth = 18.5 * $scale
-            $loopHeight = 8.8 * $scale
-            foreach ($angle in @(0.0, 60.0, 120.0)) {
-                $state = $graphics.Save()
-                $graphics.TranslateTransform([single]$center, [single]$center)
-                $graphics.RotateTransform([single]$angle)
-                $graphics.DrawEllipse(
-                    $linePen,
-                    [single](-$loopWidth / 2),
-                    [single](-$loopHeight / 2),
-                    [single]$loopWidth,
-                    [single]$loopHeight)
-                $graphics.Restore($state)
+            $knot = New-Object System.Drawing.Drawing2D.GraphicsPath
+            try {
+                $previousEnd = $null
+                $firstStart = $null
+                for ($lobe = 0; $lobe -lt 6; $lobe++) {
+                    $radians = (-90.0 + ($lobe * 60.0)) * [Math]::PI / 180.0
+                    $radialX = [Math]::Cos($radians)
+                    $radialY = [Math]::Sin($radians)
+                    $tangentX = -$radialY
+                    $tangentY = $radialX
+                    $designPoints = @(
+                        @(4.15, -2.45),
+                        @(7.15, -4.25),
+                        @(11.15, -3.75),
+                        @(12.35, 0.0),
+                        @(11.15, 3.75),
+                        @(7.15, 4.25),
+                        @(4.15, 2.45)
+                    )
+                    $points = @(
+                        foreach ($designPoint in $designPoints) {
+                            [System.Drawing.PointF]::new(
+                                [single](
+                                    $center +
+                                    (($radialX * $designPoint[0] +
+                                      $tangentX * $designPoint[1]) * $scale)),
+                                [single](
+                                    $center +
+                                    (($radialY * $designPoint[0] +
+                                      $tangentY * $designPoint[1]) * $scale)))
+                        }
+                    )
+
+                    if ($null -eq $previousEnd) {
+                        $knot.StartFigure()
+                        $firstStart = $points[0]
+                    }
+                    else {
+                        $knot.AddLine($previousEnd, $points[0])
+                    }
+                    $knot.AddBezier(
+                        $points[0],
+                        $points[1],
+                        $points[2],
+                        $points[3])
+                    $knot.AddBezier(
+                        $points[3],
+                        $points[4],
+                        $points[5],
+                        $points[6])
+                    $previousEnd = $points[6]
+                }
+                $knot.AddLine($previousEnd, $firstStart)
+                $knot.CloseFigure()
+                $graphics.DrawPath($linePen, $knot)
+            }
+            finally {
+                $knot.Dispose()
             }
         }
         finally {
             $linePen.Dispose()
         }
 
-        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
-        $aperture = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::Transparent)
+        $statusBrush = New-Object System.Drawing.SolidBrush(
+            [System.Drawing.Color]::FromArgb(255, 8, 122, 75))
         try {
-            $apertureSize = [Math]::Max(2.2, 4.2 * $scale)
+            $dotRadius = [Math]::Max(0.75, 1.5 * $scale)
             $graphics.FillEllipse(
-                $aperture,
-                [single]($center - ($apertureSize / 2)),
-                [single]($center - ($apertureSize / 2)),
-                [single]$apertureSize,
-                [single]$apertureSize)
+                $statusBrush,
+                [single]($center + (11.0 * $scale) - $dotRadius),
+                [single]($center - (11.0 * $scale) - $dotRadius),
+                [single]($dotRadius * 2),
+                [single]($dotRadius * 2))
         }
         finally {
-            $aperture.Dispose()
-        }
-
-        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
-        $progressWidth = [Math]::Max(1.1, 1.75 * $scale)
-        $progressPen = New-Object System.Drawing.Pen(
-            [System.Drawing.Color]::FromArgb(255, 8, 122, 75),
-            [single]$progressWidth)
-        try {
-            $progressPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-            $progressPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-            $inset = 2.4 * $scale
-            $graphics.DrawArc(
-                $progressPen,
-                [single]$inset,
-                [single]$inset,
-                [single]($Size - (2 * $inset)),
-                [single]($Size - (2 * $inset)),
-                -82.0,
-                58.0)
-        }
-        finally {
-            $progressPen.Dispose()
+            $statusBrush.Dispose()
         }
 
         $stream = New-Object IO.MemoryStream

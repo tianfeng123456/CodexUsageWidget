@@ -51,6 +51,7 @@ public partial class MainWindow : Window
     private DispatcherOperation? _pendingBackdropRefreshOperation;
     private CancellationTokenSource? _backdropRefreshCancellation;
     private int _backdropRefreshGeneration;
+    private bool _isDisplayDormant;
 
     public MainWindow()
     {
@@ -156,6 +157,33 @@ public partial class MainWindow : Window
 
         _glassTransparencyPercent = normalized;
         ApplyGlassTransparencyResources();
+    }
+
+    public void SetDisplayDormant(bool isDormant)
+    {
+        if (_isDisplayDormant == isDormant)
+        {
+            return;
+        }
+
+        _isDisplayDormant = isDormant;
+        if (!isDormant)
+        {
+            QueueBackdropRefresh();
+            return;
+        }
+
+        ++_backdropRefreshGeneration;
+        CancelRunningBackdropRefresh();
+        if (_pendingBackdropRefreshOperation is
+            {
+                Status: DispatcherOperationStatus.Pending,
+            } pending)
+        {
+            pending.Abort();
+        }
+
+        _pendingBackdropRefreshOperation = null;
     }
 
     public void ApplyAppearance(bool useLightTheme)
@@ -844,6 +872,11 @@ public partial class MainWindow : Window
 
     private void QueueBackdropRefresh(bool? expanded = null)
     {
+        if (_isDisplayDormant)
+        {
+            return;
+        }
+
         var targetExpanded = expanded ?? ViewModel?.IsExpanded == true;
         var targetCollapsedMode = _collapsedMode;
         var generation = ++_backdropRefreshGeneration;

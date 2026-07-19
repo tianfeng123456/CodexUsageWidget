@@ -42,6 +42,8 @@ public sealed class WeeklyQuotaDayViewModel : ObservableObject
 
     public double? ChangeFromPreviousDayPercent { get; init; }
 
+    public double? DailyConsumedPercent { get; init; }
+
     public double? ClosingUsedPercent { get; init; }
 
     public DateTimeOffset? LastObservedAt { get; init; }
@@ -59,11 +61,21 @@ public sealed class WeeklyQuotaDayViewModel : ObservableObject
     public double BarHeight { get; init; }
 
     public string UsedDisplay =>
-        ClosingUsedPercent is { } closing
-            ? closing.ToString(
-                "0.#",
-                LocalizationService.Instance.Culture) + "%"
+        DailyConsumedPercent is { } consumed
+            ? (IsPartial ? "≥" : string.Empty) +
+              consumed.ToString(
+                  "0.#",
+                  LocalizationService.Instance.Culture) + "%"
             : "—";
+
+    public string DailyConsumedDisplay =>
+        DailyConsumedPercent is { } consumed
+            ? LocalizationService.Instance.Format(
+                IsPartial
+                    ? "Loc.DailyConsumedMinimumFormat"
+                    : "Loc.DailyConsumedFormat",
+                consumed)
+            : LocalizationService.Instance.Get("Loc.DailyConsumedUnknown");
 
     public string ChangeDisplay =>
         ChangeFromPreviousDayPercent is { } change
@@ -91,8 +103,9 @@ public sealed class WeeklyQuotaDayViewModel : ObservableObject
             ? LocalizationService.Instance.Format(
                 "Loc.WeeklyTooltipObservedFormat",
                 LongDateLabel,
-                ClosingDisplay,
+                DailyConsumedDisplay,
                 ChangeDisplay,
+                ClosingDisplay,
                 LastObservedDisplay)
             : LocalizationService.Instance.Format(
                 "Loc.WeeklyTooltipMissingFormat",
@@ -103,6 +116,7 @@ public sealed class WeeklyQuotaDayViewModel : ObservableObject
         OnPropertyChanged(nameof(DateLabel));
         OnPropertyChanged(nameof(LongDateLabel));
         OnPropertyChanged(nameof(UsedDisplay));
+        OnPropertyChanged(nameof(DailyConsumedDisplay));
         OnPropertyChanged(nameof(ChangeDisplay));
         OnPropertyChanged(nameof(ClosingDisplay));
         OnPropertyChanged(nameof(LastObservedDisplay));

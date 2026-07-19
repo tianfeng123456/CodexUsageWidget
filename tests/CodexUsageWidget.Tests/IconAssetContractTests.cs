@@ -13,6 +13,9 @@ public sealed class IconAssetContractTests
         string rendererSource = File.ReadAllText(
             FindRepositoryFile(
                 "src/CodexUsageWidget/Services/HollowLineIconRenderer.cs"));
+        string themeSource = File.ReadAllText(
+            FindRepositoryFile(
+                "src/CodexUsageWidget/Services/ThemeService.cs"));
 
         Assert.Contains(
             "HollowLineIconRenderer.CreateTrayIcon(",
@@ -23,20 +26,71 @@ public sealed class IconAssetContractTests
             traySource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "graphics.DrawEllipse(",
+            "for (var lobe = 0; lobe < 6; lobe++)",
+            rendererSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "knot.AddBezier(",
+            rendererSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Math.Max(1.7f, 3f * scale)",
             rendererSource,
             StringComparison.Ordinal);
         Assert.Contains(
             "graphics.Clear(Color.Transparent)",
             rendererSource,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "FillEllipse(background",
+        Assert.Contains(
+            "ThemeService.IsSystemShellLightTheme(",
             traySource,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "FillEllipse(center",
+        Assert.Contains(
+            "\"SystemUsesLightTheme\"",
+            themeSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderedStatus == nextStatus",
             traySource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderedWithLightShellTheme == useLightShellTheme",
+            traySource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IconSources_UseOriginalSixLobeKnotAtSmallSizes()
+    {
+        string svg = File.ReadAllText(
+            FindRepositoryFile(
+                "src/CodexUsageWidget/Assets/CodexUsageWidget.svg"));
+        string generator = File.ReadAllText(
+            FindRepositoryFile("scripts/generate-app-icon.ps1"));
+
+        Assert.Contains(
+            "stroke-width=\"3\"",
+            svg,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "C11.75 8.85 12.25 4.85 16 3.65",
+            svg,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<ellipse",
+            svg,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$lobe -lt 6",
+            generator,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[Math]::Max(1.7, 3.0 * $scale)",
+            generator,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)",
+            generator,
             StringComparison.Ordinal);
     }
 

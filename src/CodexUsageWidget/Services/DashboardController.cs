@@ -16,12 +16,15 @@ public sealed class DashboardController : IAsyncDisposable
     private readonly Dispatcher dispatcher;
     private readonly string appDataDirectory;
     private readonly CancellationTokenSource lifetime = new();
+    private readonly MonitoringActivityGate monitoringActivity = new();
+    private readonly SemaphoreSlim monitoringTransitionGate = new(1, 1);
     private readonly SemaphoreSlim sourceGate = new(1, 1);
     private readonly SemaphoreSlim indexGate = new(1, 1);
     private readonly SemaphoreSlim quotaGate = new(1, 1);
     private readonly System.Threading.Timer quotaDebounceTimer;
     private readonly ConcurrentQueue<QuotaFileChange> quotaChanges = new();
     private readonly object panelRefreshLock = new();
+    private readonly object initialIndexLock = new();
     private readonly object quotaProcessorLock = new();
     private readonly object rateLimitLock = new();
     private readonly object recoveryTaskLock = new();
@@ -58,6 +61,8 @@ public sealed class DashboardController : IAsyncDisposable
 
     public string? CurrentCodexHome { get; private set; }
 
+    public bool IsMonitoringPaused => monitoringActivity.IsPaused;
+
     public async Task StartAsync(
         string? requestedCodexHome,
         CancellationToken cancellationToken = default)
@@ -88,12 +93,16 @@ public sealed class DashboardController : IAsyncDisposable
     {
         ThrowIfDisposed();
         var source = Volatile.Read(ref currentSource);
-        if (source is null)
+        if (source is null ||
+            !monitoringActivity.TryCapture(out var activity))
         {
             return;
         }
 
-        var request = BeginPanelRefresh(source, cancellationToken);
+        var request = BeginPanelRefresh(
+            source,
+            activity,
+            cancellationToken);
         var target = viewModel.GetPeriod(MapPeriod(period));
         await SetPeriodLoadingAsync(target, true, request.Token);
 
@@ -121,7 +130,8 @@ public sealed class DashboardController : IAsyncDisposable
             await dispatcher.InvokeAsync(
                 () =>
                 {
-                    if (IsCurrentSource(request.Source))
+                    if (IsCurrentSource(request.Source) &&
+                        monitoringActivity.IsCurrent(request.Activity))
                     {
                         ApplyPeriod(snapshot);
                     }
@@ -158,7 +168,11 @@ public sealed class DashboardController : IAsyncDisposable
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            ShowFriendlyError(exception);
+            if (IsCurrentSource(request.Source) &&
+                monitoringActivity.IsCurrent(request.Activity))
+            {
+                ShowFriendlyError(exception);
+            }
         }
         finally
         {
@@ -178,12 +192,16 @@ public sealed class DashboardController : IAsyncDisposable
     {
         ThrowIfDisposed();
         var source = Volatile.Read(ref currentSource);
-        if (source is null)
+        if (source is null ||
+            !monitoringActivity.TryCapture(out var activity))
         {
             return;
         }
 
-        var request = BeginPanelRefresh(source, cancellationToken);
+        var request = BeginPanelRefresh(
+            source,
+            activity,
+            cancellationToken);
         await SetWeeklyQuotaLoadingAsync(
             isLoading: true,
             statusKey: viewModel.HasWeeklyQuotaData
@@ -235,7 +253,8 @@ public sealed class DashboardController : IAsyncDisposable
             await dispatcher.InvokeAsync(
                 () =>
                 {
-                    if (!IsCurrentSource(request.Source))
+                    if (!IsCurrentSource(request.Source) ||
+                        !monitoringActivity.IsCurrent(request.Activity))
                     {
                         return;
                     }
@@ -271,11 +290,15 @@ public sealed class DashboardController : IAsyncDisposable
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            await dispatcher.InvokeAsync(
-                () => viewModel.SetWeeklyQuotaStatusMessage(
-                    FriendlyMessageKey(exception)),
-                DispatcherPriority.Background,
-                CancellationToken.None);
+            if (IsCurrentSource(request.Source) &&
+                monitoringActivity.IsCurrent(request.Activity))
+            {
+                await dispatcher.InvokeAsync(
+                    () => viewModel.SetWeeklyQuotaStatusMessage(
+                        FriendlyMessageKey(exception)),
+                    DispatcherPriority.Background,
+                    CancellationToken.None);
+            }
         }
         finally
         {
@@ -361,13 +384,15 @@ public sealed class DashboardController : IAsyncDisposable
         ThrowIfDisposed();
         CancelPanelRefresh();
         var source = Volatile.Read(ref currentSource);
-        if (source is null)
+        if (source is null ||
+            !monitoringActivity.TryCapture(out var activity))
         {
             return;
         }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             source.Token,
+            activity.CancellationToken,
             cancellationToken);
         var period = MapPeriod(
             viewModel.SelectedPeriod?.Kind ?? UsagePeriodKind.Today);
@@ -401,7 +426,8 @@ public sealed class DashboardController : IAsyncDisposable
             await dispatcher.InvokeAsync(
                 () =>
                 {
-                    if (IsCurrentSource(source))
+                    if (IsCurrentSource(source) &&
+                        monitoringActivity.IsCurrent(activity))
                     {
                         ApplyPeriod(snapshot);
                     }
@@ -422,7 +448,11 @@ public sealed class DashboardController : IAsyncDisposable
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            ShowFriendlyError(exception);
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
+            {
+                ShowFriendlyError(exception);
+            }
         }
         finally
         {
@@ -444,12 +474,95 @@ public sealed class DashboardController : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var source = Volatile.Read(ref currentSource);
-        return source is null || disposed
+        return source is null ||
+               disposed ||
+               !monitoringActivity.TryCapture(out var activity)
             ? Task.CompletedTask
             : StartTrackedRecovery(
                 source,
+                activity,
                 cancellationToken,
                 releaseRecoverySlot: false);
+    }
+
+    /// <summary>
+    /// Enters application-managed dormancy. Existing page work, quota tail
+    /// reads, watcher recovery, and first-run indexing are cancelled at safe
+    /// cancellation points before this method completes.
+    /// </summary>
+    public async Task PauseMonitoringAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await monitoringTransitionGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (disposed || !monitoringActivity.Pause())
+            {
+                return;
+            }
+
+            CancelPanelRefresh();
+            ResetQuotaQueue();
+            DisposeWatchers();
+            Interlocked.Exchange(ref watcherRecoveryGeneration, 0);
+            SetBuildingHistoryState(false);
+            SetRefreshingState(false, indexing: false);
+
+            await WaitForQuotaProcessorsAsync();
+            await WaitForRecoveryTasksAsync();
+            var backgroundIndex = GetInitialIndexTask();
+            if (backgroundIndex is not null)
+            {
+                try
+                {
+                    await backgroundIndex;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            await quotaGate.WaitAsync();
+            quotaGate.Release();
+            await indexGate.WaitAsync();
+            indexGate.Release();
+
+            // A startup or Home switch may have entered before dormancy was
+            // requested and performs its candidate open/calibration under
+            // sourceGate. Waiting for that transition provides the final
+            // barrier: once PauseMonitoringAsync returns, no source swap can
+            // still be reading logs or opening the index in the background.
+            await sourceGate.WaitAsync();
+            sourceGate.Release();
+            monitoringActivity.ReleaseRetiredCancellations();
+        }
+        finally
+        {
+            monitoringTransitionGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Leaves dormancy and performs the same bounded watcher/quota recovery
+    /// used after a system resume. Period statistics remain user-triggered.
+    /// </summary>
+    public async Task ResumeMonitoringAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await monitoringTransitionGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (disposed || !monitoringActivity.Resume())
+            {
+                return;
+            }
+
+            await RecoverAfterResumeAsync(cancellationToken);
+        }
+        finally
+        {
+            monitoringTransitionGate.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -459,70 +572,84 @@ public sealed class DashboardController : IAsyncDisposable
             return;
         }
 
-        disposed = true;
-        lifetime.Cancel();
-        Volatile.Read(ref currentSource)?.Cancel();
-        CancelPanelRefresh();
-        quotaDebounceTimer.Dispose();
-        DisposeWatchers();
-        await WaitForQuotaProcessorsAsync();
-        await WaitForRecoveryTasksAsync();
-
-        // A startup or Home transition may already be between its awaits.
-        // Let it observe cancellation before tearing down its gates, then
-        // retain the gate through teardown so no queued transition can start
-        // against resources that are being disposed.
-        await sourceGate.WaitAsync();
-        DisposeWatchers();
-
-        var backgroundIndex = initialIndexTask;
-        if (backgroundIndex is not null)
-        {
-            try
-            {
-                await backgroundIndex;
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }
-
-        await indexGate.WaitAsync();
+        await monitoringTransitionGate.WaitAsync();
         try
         {
-            if (indexService is not null)
+            if (disposed)
             {
-                indexService.ProgressChanged -= IndexServiceOnProgressChanged;
-                await indexService.DisposeAsync();
-                indexService = null;
+                return;
             }
+
+            disposed = true;
+            monitoringActivity.Dispose();
+            lifetime.Cancel();
+            Volatile.Read(ref currentSource)?.Cancel();
+            CancelPanelRefresh();
+            quotaDebounceTimer.Dispose();
+            DisposeWatchers();
+            await WaitForQuotaProcessorsAsync();
+            await WaitForRecoveryTasksAsync();
+
+            // A startup or Home transition may already be between its awaits.
+            // Let it observe cancellation before tearing down its gates, then
+            // retain the gate through teardown so no queued transition can start
+            // against resources that are being disposed.
+            await sourceGate.WaitAsync();
+            DisposeWatchers();
+
+            var backgroundIndex = GetInitialIndexTask();
+            if (backgroundIndex is not null)
+            {
+                try
+                {
+                    await backgroundIndex;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            await indexGate.WaitAsync();
+            try
+            {
+                if (indexService is not null)
+                {
+                    indexService.ProgressChanged -= IndexServiceOnProgressChanged;
+                    await indexService.DisposeAsync();
+                    indexService = null;
+                }
+            }
+            finally
+            {
+                indexGate.Release();
+            }
+
+            await quotaGate.WaitAsync();
+            quotaGate.Release();
+
+            lock (panelRefreshLock)
+            {
+                panelRefreshRequest?.Dispose();
+                panelRefreshRequest = null;
+            }
+
+            var source = Interlocked.Exchange(ref currentSource, null);
+            source?.Dispose();
+            foreach (var retiredSource in retiredSources)
+            {
+                retiredSource.Dispose();
+            }
+
+            retiredSources.Clear();
+            sourceGate.Dispose();
+            indexGate.Dispose();
+            quotaGate.Dispose();
+            lifetime.Dispose();
         }
         finally
         {
-            indexGate.Release();
+            monitoringTransitionGate.Release();
         }
-
-        await quotaGate.WaitAsync();
-        quotaGate.Release();
-
-        lock (panelRefreshLock)
-        {
-            panelRefreshRequest?.Dispose();
-            panelRefreshRequest = null;
-        }
-
-        var source = Interlocked.Exchange(ref currentSource, null);
-        source?.Dispose();
-        foreach (var retiredSource in retiredSources)
-        {
-            retiredSource.Dispose();
-        }
-
-        retiredSources.Clear();
-        sourceGate.Dispose();
-        indexGate.Dispose();
-        quotaGate.Dispose();
-        lifetime.Dispose();
     }
 
     private async Task<SourceContext?> ReplaceIndexServiceAsync(
@@ -589,8 +716,7 @@ public sealed class DashboardController : IAsyncDisposable
             DisposeWatchers();
             CancelPanelRefresh();
             oldSource?.Cancel();
-            var previousInitialIndex = initialIndexTask;
-            initialIndexTask = null;
+            var previousInitialIndex = TakeInitialIndexTask();
             if (previousInitialIndex is not null)
             {
                 try
@@ -603,7 +729,6 @@ public sealed class DashboardController : IAsyncDisposable
             }
 
             await indexGate.WaitAsync(lifetime.Token);
-            var startInitialIndex = false;
             SourceContext? source = null;
             try
             {
@@ -653,8 +778,6 @@ public sealed class DashboardController : IAsyncDisposable
                     replaceExisting: true,
                     lifetime.Token);
                 SetLiveState();
-                startInitialIndex =
-                    !candidateService.HasCompletedInitialIndex;
             }
             catch (OperationCanceledException) when (
                 lifetime.IsCancellationRequested)
@@ -670,14 +793,12 @@ public sealed class DashboardController : IAsyncDisposable
                 indexGate.Release();
             }
 
-            if (startInitialIndex &&
-                source is not null &&
+            if (source is not null &&
                 IsCurrentSource(source))
             {
-                initialIndexTask = RunInitialIndexAsync(
+                EnsureInitialIndexRunning(
                     candidateService,
-                    source,
-                    source.Token);
+                    source);
             }
 
             return source is not null &&
@@ -699,8 +820,12 @@ public sealed class DashboardController : IAsyncDisposable
     private async Task RunInitialIndexAsync(
         UsageIndexService service,
         SourceContext source,
-        CancellationToken cancellationToken)
+        MonitoringActivityLease activity)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            source.Token,
+            activity.CancellationToken);
+        var cancellationToken = linked.Token;
         var gateEntered = false;
         try
         {
@@ -709,7 +834,8 @@ public sealed class DashboardController : IAsyncDisposable
             await indexGate.WaitAsync(cancellationToken);
             gateEntered = true;
             if (!ReferenceEquals(service, indexService) ||
-                !IsCurrentSource(source))
+                !IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return;
             }
@@ -717,7 +843,8 @@ public sealed class DashboardController : IAsyncDisposable
             await Task.Run(
                 () => service.RefreshAsync(cancellationToken),
                 cancellationToken);
-            if (IsCurrentSource(source))
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
             {
                 SetLiveState();
             }
@@ -727,7 +854,11 @@ public sealed class DashboardController : IAsyncDisposable
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            ShowFriendlyError(exception);
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
+            {
+                ShowFriendlyError(exception);
+            }
         }
         finally
         {
@@ -736,13 +867,64 @@ public sealed class DashboardController : IAsyncDisposable
                 indexGate.Release();
             }
 
-            SetBuildingHistoryState(false);
-            SetRefreshingState(false, indexing: false);
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
+            {
+                SetBuildingHistoryState(false);
+                SetRefreshingState(false, indexing: false);
+            }
+        }
+    }
+
+    private void EnsureInitialIndexRunning(
+        UsageIndexService service,
+        SourceContext source)
+    {
+        if (service.HasCompletedInitialIndex ||
+            !IsCurrentSource(source) ||
+            !monitoringActivity.TryCapture(out var activity))
+        {
+            return;
+        }
+
+        lock (initialIndexLock)
+        {
+            if (initialIndexTask is { IsCompleted: false } ||
+                service.HasCompletedInitialIndex ||
+                !IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
+            {
+                return;
+            }
+
+            initialIndexTask = RunInitialIndexAsync(
+                service,
+                source,
+                activity);
+        }
+    }
+
+    private Task? GetInitialIndexTask()
+    {
+        lock (initialIndexLock)
+        {
+            return initialIndexTask;
+        }
+    }
+
+    private Task? TakeInitialIndexTask()
+    {
+        lock (initialIndexLock)
+        {
+            var task = initialIndexTask;
+            initialIndexTask = null;
+            return task;
         }
     }
 
     private PanelRefreshRequest BeginPanelRefresh(
         SourceContext source,
+        MonitoringActivityLease activity,
         CancellationToken cancellationToken)
     {
         lock (panelRefreshLock)
@@ -753,9 +935,11 @@ public sealed class DashboardController : IAsyncDisposable
             panelRefreshRequest?.Cancel();
             panelRefreshRequest = new PanelRefreshRequest(
                 source,
+                activity,
                 CancellationTokenSource.CreateLinkedTokenSource(
                     lifetime.Token,
                     source.Token,
+                    activity.CancellationToken,
                     cancellationToken));
             return panelRefreshRequest;
         }
@@ -862,9 +1046,10 @@ public sealed class DashboardController : IAsyncDisposable
         }
     }
 
-    private void RequestQuotaRefresh()
+    private void RequestQuotaRefresh(
+        MonitoringActivityLease activity)
     {
-        if (disposed)
+        if (disposed || !monitoringActivity.IsCurrent(activity))
         {
             return;
         }
@@ -885,7 +1070,9 @@ public sealed class DashboardController : IAsyncDisposable
             MaximumQuotaDebounceMilliseconds - elapsed,
             0,
             QuietQuotaDebounceMilliseconds);
-        ScheduleQuotaRefresh(TimeSpan.FromMilliseconds(delay));
+        ScheduleQuotaRefresh(
+            TimeSpan.FromMilliseconds(delay),
+            activity);
     }
 
     private void StartQuotaProcessor()
@@ -893,7 +1080,7 @@ public sealed class DashboardController : IAsyncDisposable
         Task task;
         lock (quotaProcessorLock)
         {
-            if (disposed)
+            if (disposed || monitoringActivity.IsPaused)
             {
                 return;
             }
@@ -957,15 +1144,22 @@ public sealed class DashboardController : IAsyncDisposable
         }
 
         var source = Volatile.Read(ref currentSource);
-        if (source is null || !IsCurrentSource(source))
+        if (source is null ||
+            !IsCurrentSource(source) ||
+            !monitoringActivity.TryCapture(out var activity))
         {
             return;
         }
 
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            lifetime.Token,
+            source.Token,
+            activity.CancellationToken);
+        var cancellationToken = linked.Token;
         bool entered;
         try
         {
-            entered = await quotaGate.WaitAsync(0, lifetime.Token);
+            entered = await quotaGate.WaitAsync(0, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -974,7 +1168,9 @@ public sealed class DashboardController : IAsyncDisposable
 
         if (!entered)
         {
-            ScheduleQuotaRefresh(TimeSpan.FromMilliseconds(250));
+            ScheduleQuotaRefresh(
+                TimeSpan.FromMilliseconds(250),
+                activity);
             return;
         }
 
@@ -986,7 +1182,8 @@ public sealed class DashboardController : IAsyncDisposable
             }
 
             Interlocked.Exchange(ref quotaBurstStartedAtMilliseconds, 0);
-            if (!IsCurrentSource(source))
+            if (!IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return;
             }
@@ -996,7 +1193,8 @@ public sealed class DashboardController : IAsyncDisposable
             var checkpointSetChanged = false;
             while (quotaChanges.TryDequeue(out var change))
             {
-                if (change.SourceGeneration != source.Generation)
+                if (change.SourceGeneration != source.Generation ||
+                    change.ActivityGeneration != activity.Generation)
                 {
                     continue;
                 }
@@ -1031,8 +1229,9 @@ public sealed class DashboardController : IAsyncDisposable
 
             var result = await source.RateLimitMonitor.ReadChangedFilesAsync(
                 pathsToRead,
-                source.Token);
-            if (!IsCurrentSource(source))
+                cancellationToken);
+            if (!IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return;
             }
@@ -1043,23 +1242,29 @@ public sealed class DashboardController : IAsyncDisposable
                 updateFullUi: false,
                 clearWhenMissing: checkpointSetChanged,
                 replaceExisting: checkpointSetChanged,
-                source.Token);
+                cancellationToken);
         }
         catch (OperationCanceledException) when (
             lifetime.IsCancellationRequested ||
-            source.Token.IsCancellationRequested)
+            source.Token.IsCancellationRequested ||
+            activity.CancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            ShowFriendlyError(exception);
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
+            {
+                ShowFriendlyError(exception);
+            }
         }
         finally
         {
             quotaGate.Release();
-            if (!quotaChanges.IsEmpty)
+            if (!quotaChanges.IsEmpty &&
+                monitoringActivity.IsCurrent(activity))
             {
-                RequestQuotaRefresh();
+                RequestQuotaRefresh(activity);
             }
         }
     }
@@ -1292,6 +1497,7 @@ public sealed class DashboardController : IAsyncDisposable
                             null,
                             null,
                             null,
+                            null,
                             0,
                             true);
                 })
@@ -1306,7 +1512,7 @@ public sealed class DashboardController : IAsyncDisposable
                         ? 3d
                         : 6d + (32d *
                             Math.Clamp(
-                                (value.LastObservedUsedPercent ?? 0d) / 100d,
+                                (value.ConsumedPercentagePoints ?? 0d) / 100d,
                                 0,
                                 1));
                     return new WeeklyQuotaDayViewModel
@@ -1315,6 +1521,8 @@ public sealed class DashboardController : IAsyncDisposable
                         IsToday = value.LocalDate == today,
                         ChangeFromPreviousDayPercent =
                             value.ChangeFromPreviousDayPercentagePoints,
+                        DailyConsumedPercent =
+                            value.ConsumedPercentagePoints,
                         ClosingUsedPercent =
                             value.LastObservedUsedPercent,
                         LastObservedAt = value.LastObservedAt,
@@ -1391,7 +1599,20 @@ public sealed class DashboardController : IAsyncDisposable
 
     private void ConfigureWatchers(SourceContext source)
     {
-        if (!IsCurrentSource(source))
+        if (!monitoringActivity.TryCapture(out var activity))
+        {
+            return;
+        }
+
+        ConfigureWatchers(source, activity);
+    }
+
+    private void ConfigureWatchers(
+        SourceContext source,
+        MonitoringActivityLease activity)
+    {
+        if (!IsCurrentSource(source) ||
+            !monitoringActivity.IsCurrent(activity))
         {
             return;
         }
@@ -1401,7 +1622,8 @@ public sealed class DashboardController : IAsyncDisposable
             // The source can change while a recovery callback is waiting for
             // this lock. Revalidate under the same lock that replaces the
             // registrations so an old recovery cannot win after a Home switch.
-            if (!IsCurrentSource(source))
+            if (!IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return;
             }
@@ -1425,11 +1647,11 @@ public sealed class DashboardController : IAsyncDisposable
                 EnableRaisingEvents = false,
             };
             FileSystemEventHandler changed = (_, args) =>
-                WatcherOnChanged(source, args);
+                WatcherOnChanged(source, activity, args);
             RenamedEventHandler renamed = (_, args) =>
-                WatcherOnRenamed(source, args);
+                WatcherOnRenamed(source, activity, args);
             ErrorEventHandler error = (_, args) =>
-                WatcherOnError(source, args);
+                WatcherOnError(source, activity, args);
             watcher.Changed += changed;
             watcher.Created += changed;
             watcher.Deleted += changed;
@@ -1447,9 +1669,11 @@ public sealed class DashboardController : IAsyncDisposable
 
     private void WatcherOnChanged(
         SourceContext source,
+        MonitoringActivityLease activity,
         FileSystemEventArgs e)
     {
         if (!IsCurrentSource(source) ||
+            !monitoringActivity.IsCurrent(activity) ||
             !IsSessionLog(source.Paths, e.FullPath))
         {
             return;
@@ -1462,15 +1686,18 @@ public sealed class DashboardController : IAsyncDisposable
                 e.ChangeType == WatcherChangeTypes.Deleted
                     ? QuotaFileChangeKind.Deleted
                     : QuotaFileChangeKind.Changed,
-                source.Generation));
-        RequestQuotaRefresh();
+                source.Generation,
+                activity.Generation));
+        RequestQuotaRefresh(activity);
     }
 
     private void WatcherOnRenamed(
         SourceContext source,
+        MonitoringActivityLease activity,
         RenamedEventArgs e)
     {
-        if (!IsCurrentSource(source))
+        if (!IsCurrentSource(source) ||
+            !monitoringActivity.IsCurrent(activity))
         {
             return;
         }
@@ -1489,18 +1716,21 @@ public sealed class DashboardController : IAsyncDisposable
                 newIsSession
                     ? QuotaFileChangeKind.Renamed
                     : QuotaFileChangeKind.Deleted,
-                source.Generation));
-        RequestQuotaRefresh();
+                source.Generation,
+                activity.Generation));
+        RequestQuotaRefresh(activity);
     }
 
     private void WatcherOnError(
         SourceContext source,
+        MonitoringActivityLease activity,
         ErrorEventArgs e)
     {
         if (!IsCurrentSource(source) ||
+            !monitoringActivity.IsCurrent(activity) ||
             Interlocked.CompareExchange(
                 ref watcherRecoveryGeneration,
-                source.Generation,
+                activity.Generation,
                 0) != 0)
         {
             return;
@@ -1508,19 +1738,23 @@ public sealed class DashboardController : IAsyncDisposable
 
         _ = StartTrackedRecovery(
             source,
+            activity,
             source.Token,
             releaseRecoverySlot: true);
     }
 
     private Task StartTrackedRecovery(
         SourceContext source,
+        MonitoringActivityLease activity,
         CancellationToken cancellationToken,
         bool releaseRecoverySlot)
     {
         TaskCompletionSource completion;
         lock (recoveryTaskLock)
         {
-            if (disposed)
+            if (disposed ||
+                !IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return Task.CompletedTask;
             }
@@ -1533,6 +1767,7 @@ public sealed class DashboardController : IAsyncDisposable
         _ = RunTrackedRecoveryAsync(
             completion,
             source,
+            activity,
             cancellationToken,
             releaseRecoverySlot);
         return completion.Task;
@@ -1541,6 +1776,7 @@ public sealed class DashboardController : IAsyncDisposable
     private async Task RunTrackedRecoveryAsync(
         TaskCompletionSource completion,
         SourceContext source,
+        MonitoringActivityLease activity,
         CancellationToken cancellationToken,
         bool releaseRecoverySlot)
     {
@@ -1548,6 +1784,7 @@ public sealed class DashboardController : IAsyncDisposable
         {
             await RecoverWatchersAndQuotaAsync(
                 source,
+                activity,
                 cancellationToken,
                 releaseRecoverySlot);
             completion.TrySetResult();
@@ -1598,20 +1835,24 @@ public sealed class DashboardController : IAsyncDisposable
 
     private async Task RecoverWatchersAndQuotaAsync(
         SourceContext source,
+        MonitoringActivityLease activity,
         CancellationToken cancellationToken,
         bool releaseRecoverySlot)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             source.Token,
+            activity.CancellationToken,
             cancellationToken);
         try
         {
-            if (!IsCurrentSource(source))
+            if (!IsCurrentSource(source) ||
+                !monitoringActivity.IsCurrent(activity))
             {
                 return;
             }
 
-            ConfigureWatchers(source);
+            ResetQuotaQueue();
+            ConfigureWatchers(source, activity);
             await CalibrateQuotaAsync(
                 source,
                 resetMonitor: true,
@@ -1619,9 +1860,15 @@ public sealed class DashboardController : IAsyncDisposable
                 clearWhenMissing: false,
                 replaceExisting: true,
                 linked.Token);
-            if (IsCurrentSource(source))
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
             {
                 SetLiveState();
+                var service = indexService;
+                if (service is not null)
+                {
+                    EnsureInitialIndexRunning(service, source);
+                }
             }
         }
         catch (OperationCanceledException) when (
@@ -1630,7 +1877,11 @@ public sealed class DashboardController : IAsyncDisposable
         }
         catch (Exception exception) when (IsRecoverable(exception))
         {
-            ShowFriendlyError(exception);
+            if (IsCurrentSource(source) &&
+                monitoringActivity.IsCurrent(activity))
+            {
+                ShowFriendlyError(exception);
+            }
         }
         finally
         {
@@ -1639,7 +1890,7 @@ public sealed class DashboardController : IAsyncDisposable
                 Interlocked.CompareExchange(
                     ref watcherRecoveryGeneration,
                     0,
-                    source.Generation);
+                    activity.Generation);
             }
         }
     }
@@ -1765,9 +2016,11 @@ public sealed class DashboardController : IAsyncDisposable
         }
     }
 
-    private void ScheduleQuotaRefresh(TimeSpan delay)
+    private void ScheduleQuotaRefresh(
+        TimeSpan delay,
+        MonitoringActivityLease activity)
     {
-        if (disposed)
+        if (disposed || !monitoringActivity.IsCurrent(activity))
         {
             return;
         }
@@ -1785,9 +2038,24 @@ public sealed class DashboardController : IAsyncDisposable
         object? sender,
         IndexProgressChangedEventArgs e)
     {
+        if (disposed ||
+            sender is not UsageIndexService service ||
+            !ReferenceEquals(service, indexService) ||
+            !monitoringActivity.TryCapture(out var activity))
+        {
+            return;
+        }
+
         dispatcher.BeginInvoke(
             () =>
             {
+                if (disposed ||
+                    !ReferenceEquals(service, indexService) ||
+                    !monitoringActivity.IsCurrent(activity))
+                {
+                    return;
+                }
+
                 viewModel.IsIndexing = !e.IsComplete;
                 viewModel.IndexProgress = e.Progress;
             },
@@ -1965,7 +2233,8 @@ public sealed class DashboardController : IAsyncDisposable
         string Path,
         string? OldPath,
         QuotaFileChangeKind Kind,
-        long SourceGeneration);
+        long SourceGeneration,
+        long ActivityGeneration);
 
     private sealed record WatcherRegistration(
         FileSystemWatcher Watcher,
@@ -2038,14 +2307,18 @@ public sealed class DashboardController : IAsyncDisposable
 
         public PanelRefreshRequest(
             SourceContext source,
+            MonitoringActivityLease activity,
             CancellationTokenSource cancellation)
         {
             Source = source;
+            Activity = activity;
             this.cancellation = cancellation;
             Token = cancellation.Token;
         }
 
         public SourceContext Source { get; }
+
+        public MonitoringActivityLease Activity { get; }
 
         public CancellationToken Token { get; }
 

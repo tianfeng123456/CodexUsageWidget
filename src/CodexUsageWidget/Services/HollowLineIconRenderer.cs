@@ -9,6 +9,16 @@ namespace CodexUsageWidget.Services;
 internal static class HollowLineIconRenderer
 {
     private const int TrayIconSize = 32;
+    private const float DesignSize = 32f;
+
+    internal enum VisualStatus
+    {
+        None,
+        Good,
+        Warning,
+        Urgent,
+        Critical,
+    }
 
     public static Icon CreateTrayIcon(
         double? remainingPercent,
@@ -45,65 +55,93 @@ internal static class HollowLineIconRenderer
         graphics.CompositingQuality = CompositingQuality.HighQuality;
         graphics.Clear(Color.Transparent);
 
-        var scale = size / 32f;
+        var scale = size / DesignSize;
         var center = size / 2f;
         var lineColor = useLightTheme
-            ? Color.FromArgb(245, 24, 29, 27)
-            : Color.FromArgb(245, 241, 245, 243);
-        using var linePen = new Pen(lineColor, Math.Max(1.15f, 2.05f * scale))
+            ? Color.FromArgb(255, 16, 21, 18)
+            : Color.FromArgb(255, 246, 248, 247);
+        using var linePen = new Pen(lineColor, Math.Max(1.7f, 3f * scale))
         {
             StartCap = LineCap.Round,
             EndCap = LineCap.Round,
             LineJoin = LineJoin.Round,
         };
 
-        var loopWidth = 18.5f * scale;
-        var loopHeight = 8.8f * scale;
-        foreach (var angle in new[] { 0f, 60f, 120f })
+        // Six rounded lobes share a small central aperture. The silhouette is
+        // intentionally original rather than a reproduction of a third-party
+        // mark, while the generous footprint and single hollow stroke retain
+        // the visual clarity of a modern AI product icon at 16–20 px.
+        using (var knot = new GraphicsPath())
         {
-            var state = graphics.Save();
-            graphics.TranslateTransform(center, center);
-            graphics.RotateTransform(angle);
-            graphics.DrawEllipse(
-                linePen,
-                -loopWidth / 2,
-                -loopHeight / 2,
-                loopWidth,
-                loopHeight);
-            graphics.Restore(state);
-        }
-
-        // Preserve a clean hollow aperture after the three loops cross.
-        graphics.CompositingMode = CompositingMode.SourceCopy;
-        using (var aperture = new SolidBrush(Color.Transparent))
-        {
-            var apertureSize = Math.Max(2.2f, 4.2f * scale);
-            graphics.FillEllipse(
-                aperture,
-                center - (apertureSize / 2),
-                center - (apertureSize / 2),
-                apertureSize,
-                apertureSize);
-        }
-
-        graphics.CompositingMode = CompositingMode.SourceOver;
-        if (remainingPercent is { } remaining && double.IsFinite(remaining))
-        {
-            var status = RemainingQuotaStatusPolicy.Evaluate(
-                remaining,
-                isRefreshing: false,
-                hasLiveData: true);
-            var progressColor = status switch
+            PointF? previousEnd = null;
+            PointF firstStart = default;
+            for (var lobe = 0; lobe < 6; lobe++)
             {
-                RemainingQuotaStatus.Low =>
+                var radians = ((-90f + (lobe * 60f)) * MathF.PI) / 180f;
+                var radialX = MathF.Cos(radians);
+                var radialY = MathF.Sin(radians);
+                var tangentX = -radialY;
+                var tangentY = radialX;
+
+                PointF Point(float radial, float tangent) =>
+                    new(
+                        center + ((radialX * radial + tangentX * tangent) * scale),
+                        center + ((radialY * radial + tangentY * tangent) * scale));
+
+                var start = Point(4.15f, -2.45f);
+                var firstControl = Point(7.15f, -4.25f);
+                var secondControl = Point(11.15f, -3.75f);
+                var tip = Point(12.35f, 0f);
+                var thirdControl = Point(11.15f, 3.75f);
+                var fourthControl = Point(7.15f, 4.25f);
+                var end = Point(4.15f, 2.45f);
+
+                if (previousEnd is { } previous)
+                {
+                    knot.AddLine(previous, start);
+                }
+                else
+                {
+                    knot.StartFigure();
+                    firstStart = start;
+                }
+
+                knot.AddBezier(
+                    start,
+                    firstControl,
+                    secondControl,
+                    tip);
+                knot.AddBezier(
+                    tip,
+                    thirdControl,
+                    fourthControl,
+                    end);
+                previousEnd = end;
+            }
+
+            if (previousEnd is { } finalEnd)
+            {
+                knot.AddLine(finalEnd, firstStart);
+            }
+
+            knot.CloseFigure();
+            graphics.DrawPath(linePen, knot);
+        }
+
+        var visualStatus = GetVisualStatus(remainingPercent);
+        if (visualStatus != VisualStatus.None)
+        {
+            var statusColor = visualStatus switch
+            {
+                VisualStatus.Warning =>
                     useLightTheme
                         ? Color.FromArgb(255, 154, 82, 0)
                         : Color.FromArgb(255, 255, 205, 114),
-                RemainingQuotaStatus.NearlyExhausted =>
+                VisualStatus.Urgent =>
                     useLightTheme
                         ? Color.FromArgb(255, 163, 58, 0)
                         : Color.FromArgb(255, 255, 160, 82),
-                RemainingQuotaStatus.Exhausted =>
+                VisualStatus.Critical =>
                     useLightTheme
                         ? Color.FromArgb(255, 180, 35, 59)
                         : Color.FromArgb(255, 255, 115, 123),
@@ -112,25 +150,37 @@ internal static class HollowLineIconRenderer
                         ? Color.FromArgb(255, 8, 122, 75)
                         : Color.FromArgb(255, 107, 224, 173),
             };
-            using var progressPen = new Pen(
-                progressColor,
-                Math.Max(1.1f, 1.75f * scale))
-            {
-                StartCap = LineCap.Round,
-                EndCap = LineCap.Round,
-            };
-            var inset = 2.4f * scale;
-            graphics.DrawArc(
-                progressPen,
-                inset,
-                inset,
-                size - (2 * inset),
-                size - (2 * inset),
-                -82,
-                58);
+            var dotRadius = Math.Max(0.75f, 1.5f * scale);
+            using var statusBrush = new SolidBrush(statusColor);
+            graphics.FillEllipse(
+                statusBrush,
+                center + (11f * scale) - dotRadius,
+                center - (11f * scale) - dotRadius,
+                dotRadius * 2,
+                dotRadius * 2);
         }
 
         return bitmap;
+    }
+
+    internal static VisualStatus GetVisualStatus(double? remainingPercent)
+    {
+        if (remainingPercent is not { } remaining ||
+            !double.IsFinite(remaining))
+        {
+            return VisualStatus.None;
+        }
+
+        return RemainingQuotaStatusPolicy.Evaluate(
+            remaining,
+            isRefreshing: false,
+            hasLiveData: true) switch
+        {
+            RemainingQuotaStatus.Low => VisualStatus.Warning,
+            RemainingQuotaStatus.NearlyExhausted => VisualStatus.Urgent,
+            RemainingQuotaStatus.Exhausted => VisualStatus.Critical,
+            _ => VisualStatus.Good,
+        };
     }
 
     [DllImport("user32.dll")]

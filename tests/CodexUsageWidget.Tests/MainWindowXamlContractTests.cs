@@ -5,6 +5,23 @@ namespace CodexUsageWidget.Tests;
 
 public sealed class MainWindowXamlContractTests
 {
+    [Fact]
+    public void WeeklyQuotaPartialDay_IsRenderedAsALowerBound()
+    {
+        string source = File.ReadAllText(
+            FindRepositoryFile(
+                "src/CodexUsageWidget/ViewModels/UsageViewModels.cs"));
+
+        Assert.Contains(
+            "(IsPartial ? \"≥\" : string.Empty)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"Loc.DailyConsumedMinimumFormat\"",
+            source,
+            StringComparison.Ordinal);
+    }
+
     private static readonly Regex OneWayModePattern = new(
         @"(?:^|,)\s*Mode\s*=\s*OneWay\s*(?:,|})",
         RegexOptions.CultureInvariant);
@@ -24,7 +41,7 @@ public sealed class MainWindowXamlContractTests
             .Cast<string>()
             .ToArray();
 
-        Assert.Equal(4, hoveredDayBindings.Length);
+        Assert.Equal(5, hoveredDayBindings.Length);
         Assert.All(
             hoveredDayBindings,
             binding => Assert.Matches(OneWayModePattern, binding));
@@ -132,6 +149,10 @@ public sealed class MainWindowXamlContractTests
     }
 
     private static string FindMainWindowXaml()
+        => FindRepositoryFile(
+            "src/CodexUsageWidget/MainWindow.xaml");
+
+    private static string FindRepositoryFile(string relativePath)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
 
@@ -139,9 +160,7 @@ public sealed class MainWindowXamlContractTests
         {
             string candidate = Path.Combine(
                 directory.FullName,
-                "src",
-                "CodexUsageWidget",
-                "MainWindow.xaml");
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
 
             if (File.Exists(candidate))
             {
@@ -152,6 +171,6 @@ public sealed class MainWindowXamlContractTests
         }
 
         throw new FileNotFoundException(
-            "Could not locate src/CodexUsageWidget/MainWindow.xaml from the test output directory.");
+            $"Could not locate {relativePath} from the test output directory.");
     }
 }

@@ -29,6 +29,8 @@ public partial class SettingsWindow : Window
         AlwaysOnTopCheckBox.IsChecked = settings.AlwaysOnTop;
         AutoCollapseCheckBox.IsChecked = settings.AutoCollapse;
         StartupCheckBox.IsChecked = settings.StartWithWindows;
+        PauseMonitoringWhenDisplayOffCheckBox.IsChecked =
+            settings.PauseMonitoringWhenDisplayOff;
         SelectTheme(ThemeService.ParseMode(settings.ThemeMode));
         SelectLanguage(AppLanguagePolicy.ParseMode(settings.LanguageMode));
         SelectCollapsedMode(
@@ -301,6 +303,8 @@ public partial class SettingsWindow : Window
             // Retain the obsolete value solely for old settings compatibility.
             AutoCollapseDelayMs = originalSettings.AutoCollapseDelayMs,
             StartWithWindows = StartupCheckBox.IsChecked == true,
+            PauseMonitoringWhenDisplayOff =
+                PauseMonitoringWhenDisplayOffCheckBox.IsChecked == true,
             ThemeMode = SelectedTheme.ToString(),
             LanguageMode = AppLanguagePolicy.ToSettingValue(
                 SelectedLanguage),

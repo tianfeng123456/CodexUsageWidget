@@ -27,16 +27,32 @@ public static class ThemeService
 
     public static bool IsSystemLightTheme()
     {
+        return ReadPersonalizationFlag(
+            "AppsUseLightTheme",
+            fallback: false);
+    }
+
+    public static bool IsSystemShellLightTheme(bool fallback)
+    {
+        return ReadPersonalizationFlag(
+            "SystemUsesLightTheme",
+            fallback);
+    }
+
+    private static bool ReadPersonalizationFlag(
+        string valueName,
+        bool fallback)
+    {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(
                 PersonalizeKey,
                 writable: false);
-            return key?.GetValue("AppsUseLightTheme") switch
+            return key?.GetValue(valueName) switch
             {
                 int value => value != 0,
                 long value => value != 0,
-                _ => false,
+                _ => fallback,
             };
         }
         catch (Exception exception) when (
@@ -44,7 +60,7 @@ public static class ThemeService
                 or System.Security.SecurityException
                 or IOException)
         {
-            return false;
+            return fallback;
         }
     }
 }

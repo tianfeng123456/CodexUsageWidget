@@ -606,10 +606,12 @@ public sealed class UsageRepository
     }
 
     /// <summary>
-    /// Returns the final directly observed value of the exact <c>codex</c>
-    /// 10,080-minute allowance meter for every local calendar date touched by
-    /// a half-open interval. Existing raw observations are read only; this
-    /// method never mutates the index.
+    /// Reconstructs the observed daily increase of the exact <c>codex</c>
+    /// 10,080-minute allowance meter for every local calendar date touched by a
+    /// half-open interval. A monotonic high-water mark is maintained for each
+    /// server reset window, which prevents concurrent stale snapshots and reset
+    /// drops from being counted as new usage. Existing observations are read
+    /// only; this method never mutates the index.
     /// </summary>
     public async Task<IReadOnlyList<DailyWeeklyRateLimitUsage>>
         QueryWeeklyRateLimitDailyUsageAsync(
@@ -629,6 +631,8 @@ public sealed class UsageRepository
 
         var firstDate = ToLocalDate(fromUtc);
         var lastDate = ToLocalDate(toUtc.AddTicks(-1));
+        var historyFromUtc = fromUtc.AddMinutes(
+            -WeeklyRateLimitWindowMinutes);
         var days = CreateDailyRateLimitBuilders(
             firstDate,
             lastDate,
@@ -646,10 +650,15 @@ public sealed class UsageRepository
                         WHEN primary_window_minutes = $weekly_minutes
                             THEN primary_used_percent
                         ELSE secondary_used_percent
-                    END AS used_percent
+                    END AS used_percent,
+                    CASE
+                        WHEN primary_window_minutes = $weekly_minutes
+                            THEN primary_resets_at
+                        ELSE secondary_resets_at
+                    END AS resets_at
                 FROM rate_limit_events
                 WHERE lower(COALESCE(limit_id, '')) = 'codex'
-                  AND timestamp_utc >= $from_utc
+                  AND timestamp_utc >= $history_from_utc
                   AND timestamp_utc < $to_utc
                   AND (
                       (primary_window_minutes = $weekly_minutes
@@ -661,23 +670,27 @@ public sealed class UsageRepository
             )
             SELECT DISTINCT
                 timestamp_utc,
-                used_percent
+                used_percent,
+                resets_at
             FROM weekly_observations
             WHERE used_percent IS NOT NULL
             ORDER BY
                 timestamp_utc,
-                used_percent;
+                used_percent,
+                resets_at;
             """;
         command.Parameters.AddWithValue(
             "$weekly_minutes",
             WeeklyRateLimitWindowMinutes);
         command.Parameters.AddWithValue(
-            "$from_utc",
-            fromUtc.UtcDateTime.ToString("O"));
+            "$history_from_utc",
+            historyFromUtc.UtcDateTime.ToString("O"));
         command.Parameters.AddWithValue(
             "$to_utc",
             toUtc.UtcDateTime.ToString("O"));
 
+        var epochStates = new Dictionary<string, WeeklyRateLimitEpochState>(
+            StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -687,9 +700,60 @@ public sealed class UsageRepository
                 continue;
             }
 
-            if (observation.Timestamp < fromUtc ||
-                observation.Timestamp >= toUtc)
+            if (observation.Timestamp >= toUtc)
             {
+                continue;
+            }
+
+            // A snapshot that still names an already expired reset window is a
+            // late write from another session. It must not alter the new
+            // window's high-water mark or the day that received the stale row.
+            if (observation.ResetsAt is { } resetAt &&
+                resetAt <= observation.Timestamp)
+            {
+                continue;
+            }
+
+            var epochKey = observation.ResetsAt is { } reset
+                ? reset.UtcTicks.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture)
+                : "unknown";
+            if (!epochStates.TryGetValue(epochKey, out var epoch))
+            {
+                var resetWindowStartedAt = observation.ResetsAt?.AddMinutes(
+                    -WeeklyRateLimitWindowMinutes);
+                var startsInsideRequestedInterval =
+                    resetWindowStartedAt is { } startedAt &&
+                    startedAt >= fromUtc &&
+                    startedAt < toUtc;
+                epoch = new WeeklyRateLimitEpochState(
+                    startsInsideRequestedInterval
+                        ? 0d
+                        : observation.UsedPercent,
+                    baselineKnown:
+                        observation.Timestamp < fromUtc ||
+                        startsInsideRequestedInterval);
+                epochStates.Add(epochKey, epoch);
+            }
+
+            if (observation.UsedPercent < epoch.HighWaterUsedPercent)
+            {
+                // Concurrent sessions can emit an older cumulative snapshot
+                // after a newer one. It is not an accepted observation and
+                // must not replace the day's time or sample count.
+                continue;
+            }
+
+            var increase =
+                observation.UsedPercent - epoch.HighWaterUsedPercent;
+            if (observation.UsedPercent > epoch.HighWaterUsedPercent)
+            {
+                epoch.HighWaterUsedPercent = observation.UsedPercent;
+            }
+
+            if (observation.Timestamp < fromUtc)
+            {
+                epoch.BaselineKnown = true;
                 continue;
             }
 
@@ -699,10 +763,18 @@ public sealed class UsageRepository
                 continue;
             }
 
-            day.LastObservedUsedPercent = observation.UsedPercent;
+            day.ConsumedPercentagePoints ??= 0d;
+            day.ConsumedPercentagePoints += increase;
+            day.LastObservedUsedPercent = epoch.HighWaterUsedPercent;
             day.LastObservedAt = TimeZoneInfo.ConvertTime(
                 observation.Timestamp,
                 _timeZone);
+            if (!epoch.BaselineKnown)
+            {
+                day.IsPartial = true;
+                epoch.BaselineKnown = true;
+            }
+
             if (day.ObservationCount < int.MaxValue)
             {
                 day.ObservationCount++;
@@ -713,11 +785,16 @@ public sealed class UsageRepository
         foreach (var day in days.Values)
         {
             if (day.ObservationCount > 0 &&
-                previousDay?.ObservationCount > 0)
+                !day.IsPartial &&
+                previousDay is
+                {
+                    ObservationCount: > 0,
+                    IsPartial: false,
+                })
             {
                 day.ChangeFromPreviousDayPercentagePoints =
-                    day.LastObservedUsedPercent!.Value -
-                    previousDay.LastObservedUsedPercent!.Value;
+                    day.ConsumedPercentagePoints!.Value -
+                    previousDay.ConsumedPercentagePoints!.Value;
             }
 
             previousDay = day;
@@ -1421,9 +1498,23 @@ public sealed class UsageRepository
             return false;
         }
 
+        DateTimeOffset? resetsAt = null;
+        if (reader.FieldCount > 2 &&
+            !reader.IsDBNull(2) &&
+            DateTimeOffset.TryParse(
+                reader.GetString(2),
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal |
+                System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsedReset))
+        {
+            resetsAt = parsedReset;
+        }
+
         observation = new WeeklyRateLimitObservation(
             timestamp,
-            Math.Clamp(reader.GetDouble(1), 0d, 100d));
+            Math.Clamp(reader.GetDouble(1), 0d, 100d),
+            resetsAt);
         return true;
     }
 
@@ -1496,13 +1587,26 @@ public sealed class UsageRepository
 
     private sealed record WeeklyRateLimitObservation(
         DateTimeOffset Timestamp,
-        double UsedPercent);
+        double UsedPercent,
+        DateTimeOffset? ResetsAt);
+
+    private sealed class WeeklyRateLimitEpochState(
+        double highWaterUsedPercent,
+        bool baselineKnown)
+    {
+        public double HighWaterUsedPercent { get; set; } =
+            highWaterUsedPercent;
+
+        public bool BaselineKnown { get; set; } = baselineKnown;
+    }
 
     private sealed class DailyWeeklyRateLimitUsageBuilder(
         DateOnly localDate,
         bool isPartial)
     {
         public DateOnly LocalDate { get; } = localDate;
+
+        public double? ConsumedPercentagePoints { get; set; }
 
         public double? ChangeFromPreviousDayPercentagePoints { get; set; }
 
@@ -1516,6 +1620,7 @@ public sealed class UsageRepository
 
         public DailyWeeklyRateLimitUsage ToSnapshot() => new(
             LocalDate,
+            ConsumedPercentagePoints,
             ChangeFromPreviousDayPercentagePoints,
             LastObservedUsedPercent,
             LastObservedAt,

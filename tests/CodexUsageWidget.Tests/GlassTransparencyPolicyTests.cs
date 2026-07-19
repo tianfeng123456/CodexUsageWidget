@@ -17,10 +17,11 @@ public sealed class GlassTransparencyPolicyTests
 
     [Theory]
     [InlineData(0, 1d)]
-    [InlineData(25, 0.75d)]
-    [InlineData(50, 0.5d)]
-    [InlineData(75, 0.25d)]
-    [InlineData(100, 0d)]
+    [InlineData(25, 0.7525d)]
+    [InlineData(50, 0.505d)]
+    [InlineData(75, 0.2575d)]
+    [InlineData(99, 0.0199d)]
+    [InlineData(100, 0.01d)]
     public void ToOpacityFactor_HigherTransparencyMeansLowerOpacity(
         int transparencyPercent,
         double expected)

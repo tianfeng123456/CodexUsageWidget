@@ -5,6 +5,7 @@ public static class GlassTransparencyPolicy
     public const int MinimumPercent = 0;
     public const int MaximumPercent = 100;
     public const int DefaultPercent = 0;
+    public const double MinimumOpacityFactor = 0.01d;
 
     public static int Normalize(int transparencyPercent) =>
         Math.Clamp(
@@ -13,5 +14,7 @@ public static class GlassTransparencyPolicy
             MaximumPercent);
 
     public static double ToOpacityFactor(int transparencyPercent) =>
-        1d - (Normalize(transparencyPercent) / 100d);
+        1d -
+        (Normalize(transparencyPercent) / 100d) *
+        (1d - MinimumOpacityFactor);
 }

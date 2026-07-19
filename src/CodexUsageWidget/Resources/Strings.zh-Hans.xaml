@@ -30,11 +30,11 @@
     <system:String x:Key="Loc.Tasks">任务</system:String>
     <system:String x:Key="Loc.TopNinePrefix" xml:space="preserve">前9 </system:String>
     <system:String x:Key="Loc.OtherSeparator" xml:space="preserve"> · 其他 </system:String>
-    <system:String x:Key="Loc.WeeklyQuotaObservations">周额度每日观测</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaSubtitle">每日最后值 · 较前日净变化</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaObservations">周额度每日消耗</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaSubtitle">每日消耗 · 较前日变化</system:String>
     <system:String x:Key="Loc.Updating">正在更新</system:String>
     <system:String x:Key="Loc.LoadingWeeklyHistory">正在读取周额度历史…</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaFootnote">每日末次观测</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaFootnote">基于日志观测的重置周期增量</system:String>
     <system:String x:Key="Loc.RemainingAutomationFormat">Codex 剩余额度 {0}</system:String>
 
     <system:String x:Key="Loc.SettingsWindowTitle">Codex 用量设置</system:String>
@@ -46,12 +46,14 @@
     <system:String x:Key="Loc.AlwaysOnTop">始终置顶</system:String>
     <system:String x:Key="Loc.CollapseImmediately">鼠标移开后立即收起</system:String>
     <system:String x:Key="Loc.StartWithWindows">登录 Windows 后自动启动</system:String>
+    <system:String x:Key="Loc.PauseMonitoringWhenDisplayOff">息屏或锁屏时暂停后台监控（推荐）</system:String>
+    <system:String x:Key="Loc.PauseMonitoringWhenDisplayOffDescription">亮屏并解锁后自动恢复监听，只校准一次最新额度。</system:String>
     <system:String x:Key="Loc.Appearance">外观</system:String>
     <system:String x:Key="Loc.Theme">主题</system:String>
     <system:String x:Key="Loc.ThemeDescription">系统模式通过事件同步，不进行轮询。</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">主题模式</system:String>
     <system:String x:Key="Loc.GlassTransparency">玻璃透明度</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">数值越高，玻璃背景越透明；文字与图标保持清晰。</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% 为完整玻璃；100% 为保持拖动与识别的最大安全透明度。调整时实时预览。</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">玻璃透明度</system:String>
     <system:String x:Key="Loc.FollowSystem">跟随系统</system:String>
     <system:String x:Key="Loc.Light">浅色</system:String>
@@ -103,11 +105,14 @@
     <system:String x:Key="Loc.BuildingHistoryFormat">正在建立历史索引 {0:P0}</system:String>
     <system:String x:Key="Loc.PreviousDayChangeFormat">较前日 {0:+0.#;-0.#;0} 个百分点</system:String>
     <system:String x:Key="Loc.PreviousDayUnknown">较前日 —</system:String>
+    <system:String x:Key="Loc.DailyConsumedFormat">当日消耗 {0:0.#}%</system:String>
+    <system:String x:Key="Loc.DailyConsumedMinimumFormat">当日至少消耗 {0:0.#}%（当天起始观测缺失）</system:String>
+    <system:String x:Key="Loc.DailyConsumedUnknown">当日消耗未知</system:String>
     <system:String x:Key="Loc.WeeklyUsedOnlyFormat">周已用 {0:0.#}%</system:String>
     <system:String x:Key="Loc.WeeklyUsageUnknown">周用量未知</system:String>
     <system:String x:Key="Loc.LastObservedFormat">最后观测 {0:HH:mm}</system:String>
     <system:String x:Key="Loc.NoObservationToday">当日无观测</system:String>
-    <system:String x:Key="Loc.WeeklyTooltipObservedFormat">{0}  {1}&#10;{2} · {3}</system:String>
+    <system:String x:Key="Loc.WeeklyTooltipObservedFormat">{0}  {1}&#10;{2} · {3} · {4}</system:String>
     <system:String x:Key="Loc.WeeklyTooltipMissingFormat">{0}  无周额度观测</system:String>
     <system:String x:Key="Loc.LastRefreshFormat">最后刷新 {0:HH:mm}</system:String>
     <system:String x:Key="Loc.NeverRefreshed">尚未刷新</system:String>
