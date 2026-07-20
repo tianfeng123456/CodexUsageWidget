@@ -178,10 +178,11 @@ public sealed record LogParseCheckpoint(
     string? OwnSessionId,
     bool IsChildSession,
     TokenUsage? PreviousCumulative,
-    bool ReplayBoundarySeen)
+    bool ReplayBoundarySeen,
+    long? FirstReplayBoundaryOffset = null)
 {
     public static LogParseCheckpoint Empty { get; } =
-        new(0, null, null, false, null, false);
+        new(0, null, null, false, null, false, null);
 }
 
 public sealed record LogParseResult(

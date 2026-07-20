@@ -1,4 +1,5 @@
 using CodexUsageWidget.Core;
+using Microsoft.Data.Sqlite;
 
 namespace CodexUsageWidget.Tests;
 
@@ -54,6 +55,203 @@ public sealed class UsageRepositoryTests
         Assert.Equal(1, third.InsertedEvents);
         Assert.Equal(new TokenUsage(150, 90, 12, 30, 8), snapshot.Summary.Total);
         Assert.Equal(180, snapshot.Summary.Total.TotalTokens);
+    }
+
+    [Fact]
+    public async Task IndexFile_FirstChildTriggerRemovesPreviouslyIndexedReplayPrefix()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        var logPath = temporary.GetPath($"rollout-{childId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(childId, RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 80, 0, 10, 5),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 200, 160, 0, 20, 10));
+        await repository.IndexFileAsync(logPath, false);
+        var beforeBoundary = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp);
+
+        await TestLog.AppendLinesAsync(
+            logPath,
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(
+                timestamp.AddSeconds(3),
+                250,
+                200,
+                0,
+                25,
+                12));
+        var boundaryResult = await repository.IndexFileAsync(logPath, false);
+        var afterBoundary = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp);
+
+        await TestLog.AppendLinesAsync(
+            logPath,
+            TestLog.ReplayBoundary(timestamp.AddSeconds(4)),
+            TestLog.TokenCount(
+                timestamp.AddSeconds(5),
+                300,
+                240,
+                0,
+                30,
+                15));
+        await repository.IndexFileAsync(logPath, false);
+        var afterSecondTrigger = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp);
+
+        Assert.Equal(220, beforeBoundary.Summary.Total.TotalTokens);
+        Assert.Equal(1, boundaryResult.InsertedEvents);
+        Assert.Equal(
+            new TokenUsage(50, 40, 0, 5, 2),
+            afterBoundary.Summary.Total);
+        Assert.Equal(
+            new TokenUsage(100, 80, 0, 10, 5),
+            afterSecondTrigger.Summary.Total);
+    }
+
+    [Fact]
+    public async Task IndexFile_MigratesLegacyChildReplayPrefixWithoutFullRescan()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage.db");
+        var repository = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await repository.InitializeAsync();
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        var logPath = temporary.GetPath($"rollout-{childId}.jsonl");
+        var sourceKey = UsageRepository.GetSourceKey(logPath);
+        var timestamp = new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(childId, RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 80, 0, 10, 5),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 200, 160, 0, 20, 10));
+        await repository.IndexFileAsync(logPath, false);
+
+        await TestLog.AppendLinesAsync(
+            logPath,
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(
+                timestamp.AddSeconds(3),
+                250,
+                200,
+                0,
+                25,
+                12));
+        var parsed = await new CodexLogParser().ParseFileAsync(logPath, sourceKey);
+        var postBoundary = Assert.Single(parsed.Deltas);
+        var checkpointHash = await SharedFileAccess.ComputeCheckpointHashAsync(
+            logPath,
+            parsed.Checkpoint.Offset);
+        var file = new FileInfo(logPath);
+
+        await using (var connection = new SqliteConnection(
+                         $"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using (var insert = connection.CreateCommand())
+            {
+                insert.CommandText =
+                    """
+                    INSERT INTO token_events(
+                        file_key,
+                        event_offset,
+                        timestamp_utc,
+                        local_date,
+                        root_task_id,
+                        input_tokens,
+                        cached_input_tokens,
+                        cache_write_input_tokens,
+                        output_tokens,
+                        reasoning_output_tokens)
+                    VALUES(
+                        $key,
+                        $offset,
+                        $timestamp,
+                        $date,
+                        $root,
+                        $input,
+                        $cached,
+                        $cache_write,
+                        $output,
+                        $reasoning);
+                    """;
+                insert.Parameters.AddWithValue("$key", sourceKey);
+                insert.Parameters.AddWithValue("$offset", postBoundary.EventOffset);
+                insert.Parameters.AddWithValue(
+                    "$timestamp",
+                    postBoundary.Timestamp.UtcDateTime.ToString("O"));
+                insert.Parameters.AddWithValue("$date", "2026-07-18");
+                insert.Parameters.AddWithValue("$root", RootId);
+                insert.Parameters.AddWithValue(
+                    "$input",
+                    postBoundary.Usage.InputTokens);
+                insert.Parameters.AddWithValue(
+                    "$cached",
+                    postBoundary.Usage.CachedInputTokens);
+                insert.Parameters.AddWithValue(
+                    "$cache_write",
+                    postBoundary.Usage.CacheWriteInputTokens);
+                insert.Parameters.AddWithValue(
+                    "$output",
+                    postBoundary.Usage.OutputTokens);
+                insert.Parameters.AddWithValue(
+                    "$reasoning",
+                    postBoundary.Usage.ReasoningOutputTokens);
+                await insert.ExecuteNonQueryAsync();
+            }
+
+            await using var update = connection.CreateCommand();
+            update.CommandText =
+                """
+                UPDATE file_state
+                SET file_length = $length,
+                    processed_offset = $processed,
+                    last_write_utc_ticks = $write_ticks,
+                    previous_input = 250,
+                    previous_cached_input = 200,
+                    previous_cache_write_input = 0,
+                    previous_output = 25,
+                    previous_reasoning_output = 12,
+                    replay_boundary_seen = 1,
+                    first_replay_boundary_offset = NULL,
+                    checkpoint_hash = $hash
+                WHERE file_key = $key;
+                """;
+            update.Parameters.AddWithValue("$length", file.Length);
+            update.Parameters.AddWithValue(
+                "$processed",
+                parsed.Checkpoint.Offset);
+            update.Parameters.AddWithValue(
+                "$write_ticks",
+                file.LastWriteTimeUtc.Ticks);
+            update.Parameters.AddWithValue("$hash", checkpointHash);
+            update.Parameters.AddWithValue("$key", sourceKey);
+            await update.ExecuteNonQueryAsync();
+        }
+
+        var migratedRepository = new UsageRepository(
+            databasePath,
+            TimeZoneInfo.Utc);
+        await migratedRepository.InitializeAsync();
+        await migratedRepository.IndexFileAsync(logPath, false);
+        var snapshot = await migratedRepository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp);
+
+        Assert.Equal(
+            new TokenUsage(50, 40, 0, 5, 2),
+            snapshot.Summary.Total);
+        Assert.Equal(
+            parsed.Checkpoint.Offset,
+            await migratedRepository.GetIndexedOffsetAsync(logPath));
     }
 
     [Fact]

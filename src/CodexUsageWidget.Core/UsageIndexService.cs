@@ -156,7 +156,8 @@ public sealed class UsageIndexService : IAsyncDisposable
                             file.Length,
                             result.CurrentOffset,
                             file.LastWriteUtcTicks,
-                            file.IsArchived);
+                            file.IsArchived,
+                            result.NeedsReplayMigration);
                         changedBytes += result.BytesProcessed;
                         if (result.BytesProcessed > 0 || result.WasReset)
                         {
@@ -479,6 +480,7 @@ public sealed class UsageIndexService : IAsyncDisposable
         SessionFile file)
     {
         return _indexedFiles.TryGetValue(sourceKey, out var indexed) &&
+               !indexed.NeedsReplayMigration &&
                indexed.ProcessedOffset == file.Length &&
                indexed.FileLength == file.Length &&
                indexed.LastWriteUtcTicks == file.LastWriteUtcTicks &&

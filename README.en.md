@@ -221,6 +221,13 @@ session_index.jsonl
   included in output; neither is counted twice.
 - Period totals use deltas between adjacent cumulative counters and handle
   independent counter resets, file growth, truncation, and rewrites.
+- A child-agent rollout may copy root-task history before its first top-level
+  `inter_agent_communication_metadata` record. Those inherited events are
+  excluded instead of counted again. The first real turn and all later usage
+  remain included, and later communication records do not create new cutoffs.
+- Existing indexes are corrected once on the next explicit statistics refresh.
+  Startup and collapsed idle mode do not scan historical logs for this
+  migration, and the persisted checkpoint prevents a second subtraction.
 - Remaining percentage comes from the newest local `rate_limits` event. When
   absent, the widget shows `--` instead of guessing a quota from total usage.
 - Weekly-quota details read only the exact `limit_id=codex`, 10,080-minute

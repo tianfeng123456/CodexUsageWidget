@@ -8,7 +8,8 @@ public sealed record FileIndexResult(
     long CurrentOffset,
     int InsertedEvents,
     int MalformedLines,
-    bool WasReset)
+    bool WasReset,
+    bool NeedsReplayMigration = false)
 {
     public long BytesProcessed => Math.Max(0, CurrentOffset - PreviousOffset);
 }
@@ -19,7 +20,8 @@ public sealed record IndexedFileMetadata(
     long FileLength,
     long ProcessedOffset,
     long LastWriteUtcTicks,
-    bool IsArchived);
+    bool IsArchived,
+    bool NeedsReplayMigration = false);
 
 public sealed class UsageRepository
 {
@@ -80,6 +82,7 @@ public sealed class UsageRepository
                 previous_output INTEGER NULL,
                 previous_reasoning_output INTEGER NULL,
                 replay_boundary_seen INTEGER NOT NULL,
+                first_replay_boundary_offset INTEGER NULL,
                 checkpoint_hash TEXT NOT NULL,
                 is_archived INTEGER NOT NULL,
                 last_scan_utc TEXT NOT NULL
@@ -153,6 +156,7 @@ public sealed class UsageRepository
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureReplayBoundaryOffsetColumnAsync(connection, cancellationToken);
         _initialized = true;
     }
 
@@ -174,7 +178,10 @@ public sealed class UsageRepository
                 file_length,
                 processed_offset,
                 last_write_utc_ticks,
-                is_archived
+                is_archived,
+                is_child,
+                replay_boundary_seen,
+                first_replay_boundary_offset
             FROM file_state;
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -186,7 +193,10 @@ public sealed class UsageRepository
                 reader.GetInt64(2),
                 reader.GetInt64(3),
                 reader.GetInt64(4),
-                reader.GetInt64(5) != 0);
+                reader.GetInt64(5) != 0,
+                reader.GetInt64(6) != 0 &&
+                reader.GetInt64(7) != 0 &&
+                reader.IsDBNull(8));
             result[metadata.FileKey] = metadata;
         }
 
@@ -211,6 +221,7 @@ public sealed class UsageRepository
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var state = await LoadFileStateAsync(connection, sourceKey, cancellationToken);
         var wasReset = false;
+        long? legacyReplayBoundaryOffset = null;
 
         if (state is not null)
         {
@@ -237,6 +248,28 @@ public sealed class UsageRepository
             }
         }
 
+        if (state is
+            {
+                IsChild: true,
+                ReplayBoundarySeen: true,
+                FirstReplayBoundaryOffset: null
+            })
+        {
+            var replayBoundaryOffset =
+                await _parser.FindFirstReplayBoundaryOffsetAsync(
+                    path,
+                    cancellationToken);
+            if (replayBoundaryOffset is not null)
+            {
+                legacyReplayBoundaryOffset = replayBoundaryOffset.Value;
+                state = state with
+                {
+                    FirstReplayBoundaryOffset = replayBoundaryOffset.Value
+                };
+                wasReset = true;
+            }
+        }
+
         var previousOffset = state?.ProcessedOffset ?? 0;
         var checkpoint = state?.ToCheckpoint() ?? LogParseCheckpoint.Empty;
         var parseResult = await _parser.ParseFileAsync(
@@ -244,6 +277,11 @@ public sealed class UsageRepository
             sourceKey,
             checkpoint,
             cancellationToken);
+        var discoveredReplayPrefix =
+            state is not null &&
+            parseResult.Checkpoint.IsChildSession &&
+            state.FirstReplayBoundaryOffset is null &&
+            parseResult.Checkpoint.FirstReplayBoundaryOffset is not null;
 
         var currentHash = await SharedFileAccess.ComputeCheckpointHashAsync(
             path,
@@ -251,6 +289,27 @@ public sealed class UsageRepository
             cancellationToken);
 
         using var transaction = connection.BeginTransaction();
+        if (legacyReplayBoundaryOffset is long legacyReplayCutoff)
+        {
+            await DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                sourceKey,
+                legacyReplayCutoff,
+                cancellationToken);
+        }
+
+        if (discoveredReplayPrefix)
+        {
+            await DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                sourceKey,
+                parseResult.Checkpoint.FirstReplayBoundaryOffset!.Value,
+                cancellationToken);
+            wasReset = true;
+        }
+
         await UpsertFileStateAsync(
             connection,
             transaction,
@@ -318,7 +377,10 @@ public sealed class UsageRepository
             parseResult.Checkpoint.Offset,
             insertedEvents,
             parseResult.MalformedLineCount,
-            wasReset);
+            wasReset,
+            parseResult.Checkpoint.IsChildSession &&
+            parseResult.Checkpoint.ReplayBoundarySeen &&
+            parseResult.Checkpoint.FirstReplayBoundaryOffset is null);
     }
 
     public async Task StoreTitlesAsync(
@@ -1130,6 +1192,144 @@ public sealed class UsageRepository
         return connection;
     }
 
+    private static async Task EnsureReplayBoundaryOffsetColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var exists = false;
+        await using (var inspect = connection.CreateCommand())
+        {
+            inspect.CommandText = "PRAGMA table_info(file_state);";
+            await using var reader = await inspect.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        "first_replay_boundary_offset",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText =
+            """
+            ALTER TABLE file_state
+            ADD COLUMN first_replay_boundary_offset INTEGER NULL;
+            """;
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sourceKey,
+        long replayBoundaryOffset,
+        CancellationToken cancellationToken)
+    {
+        var affectedUsageKeys = new List<DailyUsageKey>();
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText =
+                """
+                SELECT DISTINCT local_date, root_task_id
+                FROM token_events
+                WHERE file_key = $key
+                  AND event_offset < $offset;
+                """;
+            select.Parameters.AddWithValue("$key", sourceKey);
+            select.Parameters.AddWithValue("$offset", replayBoundaryOffset);
+            await using var reader =
+                await select.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                affectedUsageKeys.Add(new DailyUsageKey(
+                    reader.GetString(0),
+                    reader.GetString(1)));
+            }
+        }
+
+        foreach (var table in new[] { "token_events", "rate_limit_events" })
+        {
+            await using var delete = connection.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandText =
+                $"DELETE FROM {table} " +
+                "WHERE file_key = $key AND event_offset < $offset;";
+            delete.Parameters.AddWithValue("$key", sourceKey);
+            delete.Parameters.AddWithValue("$offset", replayBoundaryOffset);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var key in affectedUsageKeys)
+        {
+            await RecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                key,
+                cancellationToken);
+        }
+    }
+
+    private static async Task RecalculateDailyUsageAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DailyUsageKey key,
+        CancellationToken cancellationToken)
+    {
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText =
+                """
+                DELETE FROM daily_task_usage
+                WHERE local_date = $date
+                  AND root_task_id = $root_id;
+                """;
+            delete.Parameters.AddWithValue("$date", key.LocalDate);
+            delete.Parameters.AddWithValue("$root_id", key.RootTaskId);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var rebuild = connection.CreateCommand();
+        rebuild.Transaction = transaction;
+        rebuild.CommandText =
+            """
+            INSERT INTO daily_task_usage(
+                local_date,
+                root_task_id,
+                input_tokens,
+                cached_input_tokens,
+                cache_write_input_tokens,
+                output_tokens,
+                reasoning_output_tokens)
+            SELECT
+                local_date,
+                root_task_id,
+                SUM(input_tokens),
+                SUM(cached_input_tokens),
+                SUM(cache_write_input_tokens),
+                SUM(output_tokens),
+                SUM(reasoning_output_tokens)
+            FROM token_events
+            WHERE local_date = $date
+              AND root_task_id = $root_id
+            GROUP BY local_date, root_task_id;
+            """;
+        rebuild.Parameters.AddWithValue("$date", key.LocalDate);
+        rebuild.Parameters.AddWithValue("$root_id", key.RootTaskId);
+        await rebuild.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task<FileState?> LoadFileStateAsync(
         SqliteConnection connection,
         string sourceKey,
@@ -1152,6 +1352,7 @@ public sealed class UsageRepository
                 previous_output,
                 previous_reasoning_output,
                 replay_boundary_seen,
+                first_replay_boundary_offset,
                 checkpoint_hash,
                 is_archived
             FROM file_state
@@ -1187,8 +1388,9 @@ public sealed class UsageRepository
             reader.GetInt64(6) != 0,
             previous,
             reader.GetInt64(12) != 0,
-            reader.GetString(13),
-            reader.GetInt64(14) != 0);
+            reader.IsDBNull(13) ? null : reader.GetInt64(13),
+            reader.GetString(14),
+            reader.GetInt64(15) != 0);
     }
 
     private static async Task UpsertFileStateAsync(
@@ -1222,6 +1424,7 @@ public sealed class UsageRepository
                 previous_output,
                 previous_reasoning_output,
                 replay_boundary_seen,
+                first_replay_boundary_offset,
                 checkpoint_hash,
                 is_archived,
                 last_scan_utc)
@@ -1240,6 +1443,7 @@ public sealed class UsageRepository
                 $previous_output,
                 $previous_reasoning,
                 $boundary,
+                $boundary_offset,
                 $hash,
                 $archived,
                 $scan_time)
@@ -1257,6 +1461,7 @@ public sealed class UsageRepository
                 previous_output = excluded.previous_output,
                 previous_reasoning_output = excluded.previous_reasoning_output,
                 replay_boundary_seen = excluded.replay_boundary_seen,
+                first_replay_boundary_offset = excluded.first_replay_boundary_offset,
                 checkpoint_hash = excluded.checkpoint_hash,
                 is_archived = excluded.is_archived,
                 last_scan_utc = excluded.last_scan_utc;
@@ -1278,6 +1483,11 @@ public sealed class UsageRepository
         command.Parameters.AddWithValue(
             "$boundary",
             checkpoint.ReplayBoundarySeen ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "$boundary_offset",
+            checkpoint.FirstReplayBoundaryOffset is null
+                ? DBNull.Value
+                : checkpoint.FirstReplayBoundaryOffset.Value);
         command.Parameters.AddWithValue("$hash", checkpointHash);
         command.Parameters.AddWithValue("$archived", isArchived ? 1 : 0);
         command.Parameters.AddWithValue(
@@ -2069,6 +2279,7 @@ public sealed class UsageRepository
         bool IsChild,
         TokenUsage? Previous,
         bool ReplayBoundarySeen,
+        long? FirstReplayBoundaryOffset,
         string CheckpointHash,
         bool IsArchived)
     {
@@ -2078,6 +2289,9 @@ public sealed class UsageRepository
             OwnSessionId,
             IsChild,
             Previous,
-            ReplayBoundarySeen);
+            ReplayBoundarySeen,
+            FirstReplayBoundaryOffset);
     }
+
+    private sealed record DailyUsageKey(string LocalDate, string RootTaskId);
 }

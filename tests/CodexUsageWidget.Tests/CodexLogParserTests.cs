@@ -1,3 +1,4 @@
+using System.Text;
 using CodexUsageWidget.Core;
 
 namespace CodexUsageWidget.Tests;
@@ -109,7 +110,7 @@ public sealed class CodexLogParserTests
     }
 
     [Fact]
-    public async Task ParseFile_AttributesAllChildCumulativeDeltasToRoot()
+    public async Task ParseFile_ChildDropsReplayPrefixAndKeepsPostBoundaryUsage()
     {
         using var temporary = new TemporaryDirectory();
         const string childId = "22222222-2222-2222-2222-222222222222";
@@ -120,24 +121,136 @@ public sealed class CodexLogParserTests
         await TestLog.WriteLinesAsync(
             path,
             TestLog.SessionMeta(childId, RootId, RootId),
-            TestLog.TokenCount(start, 1_000, 800, 0, 100, 50),
-            TestLog.TokenCount(start, 2_000, 1_600, 0, 200, 100),
+            TestLog.TokenCount(
+                start,
+                1_000,
+                800,
+                0,
+                100,
+                50,
+                usedPercent: 10),
+            TestLog.TokenCount(
+                start,
+                2_000,
+                1_600,
+                0,
+                200,
+                100,
+                usedPercent: 20),
             TestLog.ReplayBoundary(start),
-            TestLog.TokenCount(start.AddSeconds(3), 2_100, 1_680, 7, 220, 110));
+            TestLog.TokenCount(
+                start.AddSeconds(3),
+                2_100,
+                1_680,
+                7,
+                220,
+                110,
+                usedPercent: 30));
 
         var result = await new CodexLogParser().ParseFileAsync(
             path,
             UsageRepository.GetSourceKey(path));
 
-        Assert.Equal(3, result.Deltas.Count);
-        Assert.All(result.Deltas, delta => Assert.Equal(RootId, delta.RootTaskId));
+        var only = Assert.Single(result.Deltas);
+        Assert.Equal(RootId, only.RootTaskId);
+        Assert.Equal(new TokenUsage(100, 80, 7, 20, 10), only.Usage);
+        var rateLimit = Assert.Single(result.RateLimits).Snapshot;
+        Assert.Equal(70, rateLimit.RemainingPercent);
+        Assert.True(result.Checkpoint.ReplayBoundarySeen);
+        Assert.NotNull(result.Checkpoint.FirstReplayBoundaryOffset);
+        Assert.True(result.Checkpoint.IsChildSession);
+    }
+
+    [Fact]
+    public async Task ParseFile_ChildKeepsUsageAcrossLaterTriggerMarkers()
+    {
+        using var temporary = new TemporaryDirectory();
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        var path = temporary.GetPath($"rollout-multi-trigger-{childId}.jsonl");
+        var start = new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(childId, RootId, RootId),
+            TestLog.TokenCount(start, 1_000, 800, 0, 100, 50),
+            TestLog.ReplayBoundary(start.AddSeconds(1)),
+            TestLog.TokenCount(start.AddSeconds(2), 1_100, 880, 0, 120, 60),
+            TestLog.ReplayBoundary(start.AddSeconds(3)),
+            TestLog.TokenCount(start.AddSeconds(4), 1_250, 1_000, 0, 150, 75));
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        Assert.Equal(2, result.Deltas.Count);
         Assert.Equal(
-            new TokenUsage(2_100, 1_680, 7, 220, 110),
+            new TokenUsage(250, 200, 0, 50, 25),
             result.Deltas.Aggregate(
                 TokenUsage.Zero,
                 static (sum, delta) => sum + delta.Usage));
-        Assert.True(result.Checkpoint.ReplayBoundarySeen);
-        Assert.True(result.Checkpoint.IsChildSession);
+    }
+
+    [Fact]
+    public async Task ParseFile_ChildFindsLargeReplayMarkerWithLateType()
+    {
+        using var temporary = new TemporaryDirectory();
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        var path = temporary.GetPath($"rollout-large-trigger-{childId}.jsonl");
+        var start = new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+        var metadata = TestLog.SessionMeta(childId, RootId, RootId, start);
+        var replayed = TestLog.TokenCount(start, 100, 60, 0, 10, 2);
+        var boundary = TestLog.LargeReplayBoundaryWithLateType(
+            80 * 1024,
+            start.AddSeconds(1));
+        var accepted = TestLog.TokenCount(
+            start.AddSeconds(2),
+            150,
+            90,
+            0,
+            20,
+            4);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            metadata,
+            replayed,
+            boundary,
+            accepted);
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        var only = Assert.Single(result.Deltas);
+        Assert.Equal(new TokenUsage(50, 30, 0, 10, 2), only.Usage);
+        Assert.Equal(
+            Encoding.UTF8.GetByteCount(metadata) +
+            Encoding.UTF8.GetByteCount(replayed) +
+            2L,
+            result.Checkpoint.FirstReplayBoundaryOffset);
+    }
+
+    [Fact]
+    public async Task ParseFile_RootKeepsUsageOnBothSidesOfTriggerMarker()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-root-trigger-{RootId}.jsonl");
+        var start = new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(start, 100, 80, 0, 10, 5),
+            TestLog.ReplayBoundary(start.AddSeconds(1)),
+            TestLog.TokenCount(start.AddSeconds(2), 150, 120, 0, 20, 10));
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        Assert.Equal(2, result.Deltas.Count);
+        Assert.Equal(170, result.Deltas.Sum(delta => delta.Usage.TotalTokens));
+        Assert.False(result.Checkpoint.IsChildSession);
     }
 
     [Fact]

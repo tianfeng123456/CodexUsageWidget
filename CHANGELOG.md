@@ -3,6 +3,18 @@
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-07-20
+
+### 修复 / Fixed
+
+- 修正子代理日志继承根任务历史事件导致的累计 Token 重复统计。现在只排除首个
+  顶层 `inter_agent_communication_metadata` 之前的继承回放，保留边界之后
+  的首轮与全部后续用量；旧索引会在下一次明确刷新时一次性迁移。
+- Fixed cumulative token overcounting caused by child rollouts replaying root
+  history. Only inherited events before the first top-level communication
+  boundary are excluded; the first real turn and all later child usage remain
+  counted. Existing indexes migrate once on the next explicit refresh.
+
 ## [1.1.0] - 2026-07-20
 
 ### 新增 / Added
@@ -58,5 +70,6 @@ This project follows [Semantic Versioning](https://semver.org/).
 - 首次公开版本。
 - First public release.
 
+[1.1.1]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.0.0
