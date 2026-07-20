@@ -32,16 +32,18 @@ This project follows [Semantic Versioning](https://semver.org/).
   without log reads, statistics queries, or SQLite writes.
 - 周额度七日图改为显示各本地自然日观测到的消耗百分点。算法按服务端重置周期
   维护单调高水位，仅累计上升量，忽略并发旧快照和重置下降；相差 60 秒内的
-  `reset_at` 会归并为同一逻辑周期并选择唯一主时间线，避免并行日志把同一次
-  消耗重复相加。缺少当天起始基线时以“至少”标记可观测下限，不输出伪精确的
-  日间对比。
+  `reset_at` 会归并为同一逻辑周期。每天采用当天最后一次有效额度观测所属的
+  时间线，并只计算该时间线的日内高水位增量，避免并行日志把同一次消耗重复
+  相加，也不会把整个周期累计值归到今天。缺少当天起始基线时以“至少”标记
+  可观测下限，不输出伪精确的日间对比。
 - Changed the seven-day weekly-quota chart to reconstructed daily observed
   consumption. Per-reset-window monotonic high-water marks ignore stale
   concurrent snapshots and reset drops. `reset_at` values within 60 seconds
-  are treated as one logical window with a single canonical timeline, so
-  parallel logs cannot add the same consumption more than once. Days missing
-  a start baseline are labeled as lower bounds instead of reporting false
-  precision.
+  are treated as one logical window. Each day follows the timeline from its
+  final valid quota observation and reports only that timeline's intraday
+  high-water increase, so parallel logs cannot duplicate usage or assign an
+  entire window total to today. Days missing a start baseline are labeled as
+  lower bounds instead of reporting false precision.
 
 ### 兼容性 / Compatibility
 

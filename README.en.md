@@ -229,11 +229,12 @@ session_index.jsonl
   and not a value inherited from the previous day.
 - Within each observed reset window, daily consumption advances only from a
   monotonic high-water mark. `reset_at` values within 60 seconds are clustered
-  into one logical window and one canonical timeline is selected from parallel
-  logs, preventing the same increase from being added more than once. Stale
-  lower concurrent snapshots and reset drops do not create negative or
-  duplicate usage. Daily change compares the two daily-consumption values only
-  when both are available.
+  into one logical window. Each day follows the timeline from its final valid
+  quota observation and reports only that timeline's start-to-end high-water
+  increase. This prevents parallel timelines from duplicating usage or assigning
+  an entire window total to today. Stale lower concurrent snapshots and reset
+  drops do not create negative usage. Daily change compares the two
+  daily-consumption values only when both are available.
 - Historical observations already present in local logs or the index can be
   viewed immediately. New observations are incrementally indexed only after
   an explicit statistics refresh or opening the weekly-quota detail. A blank

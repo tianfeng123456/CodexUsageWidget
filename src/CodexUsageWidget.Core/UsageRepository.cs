@@ -611,11 +611,12 @@ public sealed class UsageRepository
     /// Reconstructs the observed daily increase of the exact <c>codex</c>
     /// 10,080-minute allowance meter for every local calendar date touched by a
     /// half-open interval. Reset timestamps within a small clock/rounding
-    /// tolerance are clustered and the best-supported schedule becomes the
-    /// single canonical timeline. Its monotonic high-water mark prevents
-    /// concurrent stale snapshots, overlapping schedules, and reset drops from
-    /// being counted as new usage. Existing observations are read only; this
-    /// method never mutates the index.
+    /// tolerance are clustered. Each local day uses the timeline from its last
+    /// valid quota observation, matching the headline quota source, and reports
+    /// only that timeline's monotonic high-water increase for the day. This
+    /// prevents stale snapshots and overlapping schedules from being added
+    /// together. Existing observations are read only; this method never mutates
+    /// the index.
     /// </summary>
     public async Task<IReadOnlyList<DailyWeeklyRateLimitUsage>>
         QueryWeeklyRateLimitDailyUsageAsync(
@@ -698,10 +699,11 @@ public sealed class UsageRepository
             historyFromUtc,
             toUtc,
             cancellationToken);
-        WeeklyResetCluster? activeResetCluster = null;
-        WeeklyRateLimitEpochState? activeEpoch = null;
-        var activeSelectionIsAmbiguous = false;
-        WeeklyRateLimitEpochState? unknownResetEpoch = null;
+        var timelines =
+            new Dictionary<WeeklyResetCluster, WeeklyRateLimitTimelineState>();
+        var authoritativeTimelineByDate =
+            new Dictionary<DateOnly, WeeklyRateLimitTimelineState>();
+        WeeklyRateLimitTimelineState? unknownResetTimeline = null;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -720,12 +722,14 @@ public sealed class UsageRepository
             // late write from another session. It must not alter the new
             // window's high-water mark or the day that received the stale row.
             if (observation.ResetsAt is { } resetAt &&
-                resetAt <= observation.Timestamp)
+                (resetAt <= observation.Timestamp ||
+                 resetAt.AddMinutes(-WeeklyRateLimitWindowMinutes) >
+                 observation.Timestamp + WeeklyResetTimestampTolerance))
             {
                 continue;
             }
 
-            WeeklyRateLimitEpochState epoch;
+            WeeklyRateLimitTimelineState timeline;
             if (observation.ResetsAt is { } observedReset)
             {
                 if (!resetClusters.TryGetCluster(
@@ -735,82 +739,63 @@ public sealed class UsageRepository
                     continue;
                 }
 
-                if (activeResetCluster is null ||
-                    activeResetCluster.MaximumResetAt <=
-                    observation.Timestamp)
-                {
-                    var selection = resetClusters.SelectCanonicalCluster(
-                        observation.Timestamp,
-                        activeResetCluster);
-                    if (selection.Cluster is null)
-                    {
-                        continue;
-                    }
-
-                    if (!ReferenceEquals(
-                            activeResetCluster,
-                            selection.Cluster))
-                    {
-                        activeResetCluster = selection.Cluster;
-                        activeEpoch = null;
-                        activeSelectionIsAmbiguous =
-                            selection.IsAmbiguous;
-                    }
-                }
-
-                // Only one reset schedule may be active at a time. All reset
-                // timestamps inside the selected jitter cluster feed one
-                // shared high-water mark; a different overlapping cluster is
-                // a competing session snapshot, not another allowance bucket
-                // to add to the day.
-                if (!ReferenceEquals(
+                if (!timelines.TryGetValue(
                         observationCluster,
-                        activeResetCluster))
-                {
-                    continue;
-                }
-
-                if (activeEpoch is null)
+                        out timeline!))
                 {
                     var resetWindowStartedAt =
-                        activeResetCluster.CanonicalResetAt.AddMinutes(
+                        observationCluster.CanonicalResetAt.AddMinutes(
                             -WeeklyRateLimitWindowMinutes);
                     var startsInsideRequestedInterval =
                         resetWindowStartedAt >= fromUtc &&
                         resetWindowStartedAt < toUtc;
-                    activeEpoch = new WeeklyRateLimitEpochState(
-                        startsInsideRequestedInterval
-                            ? 0d
-                            : observation.UsedPercent,
-                        baselineKnown:
-                            observation.Timestamp < fromUtc ||
-                            startsInsideRequestedInterval,
-                        activeSelectionIsAmbiguous);
+                    timeline = new WeeklyRateLimitTimelineState(
+                        observationCluster,
+                        new WeeklyRateLimitEpochState(
+                            startsInsideRequestedInterval
+                                ? 0d
+                                : observation.UsedPercent,
+                            baselineKnown:
+                                observation.Timestamp < fromUtc ||
+                                startsInsideRequestedInterval,
+                            isAmbiguous: false));
+                    timelines.Add(observationCluster, timeline);
                 }
-
-                epoch = activeEpoch;
             }
             else
             {
-                // Older log formats can omit resets_at. Keep a single
-                // best-effort timeline only when no dated reset schedule is
-                // available, and report it as partial.
+                // Older log formats can omit resets_at. Use one best-effort
+                // timeline only when no dated reset schedule is available.
                 if (resetClusters.Count > 0)
                 {
                     continue;
                 }
 
-                if (unknownResetEpoch is null)
-                {
-                    unknownResetEpoch = new WeeklyRateLimitEpochState(
+                unknownResetTimeline ??= new WeeklyRateLimitTimelineState(
+                    cluster: null,
+                    new WeeklyRateLimitEpochState(
                         observation.UsedPercent,
                         baselineKnown: observation.Timestamp < fromUtc,
-                        isAmbiguous: true);
-                }
-
-                epoch = unknownResetEpoch;
+                        isAmbiguous: true));
+                timeline = unknownResetTimeline;
             }
 
+            DateOnly? observationDate = null;
+            if (observation.Timestamp >= fromUtc)
+            {
+                var localDate = ToLocalDate(observation.Timestamp);
+                if (days.ContainsKey(localDate))
+                {
+                    observationDate = localDate;
+                    // The final valid observation of each local day is the
+                    // same authority used by the headline quota. Because the
+                    // SQL stream is globally ordered, the last assignment
+                    // wins without a second per-day query.
+                    authoritativeTimelineByDate[localDate] = timeline;
+                }
+            }
+
+            var epoch = timeline.Epoch;
             if (epoch.LastAcceptedTimestamp == observation.Timestamp &&
                 epoch.LastAcceptedUsedPercent == observation.UsedPercent)
             {
@@ -841,28 +826,86 @@ public sealed class UsageRepository
                 continue;
             }
 
-            var localDate = ToLocalDate(observation.Timestamp);
-            if (!days.TryGetValue(localDate, out var day))
+            if (observationDate is not { } acceptedDate)
             {
                 continue;
             }
 
-            day.ConsumedPercentagePoints ??= 0d;
-            day.ConsumedPercentagePoints += increase;
-            day.LastObservedUsedPercent = epoch.HighWaterUsedPercent;
-            day.LastObservedAt = TimeZoneInfo.ConvertTime(
+            var timelineDay = timeline.GetOrCreateDay(acceptedDate);
+            timelineDay.ConsumedPercentagePoints ??= 0d;
+            timelineDay.ConsumedPercentagePoints += increase;
+            timelineDay.LastObservedUsedPercent =
+                epoch.HighWaterUsedPercent;
+            timelineDay.LastObservedAt = TimeZoneInfo.ConvertTime(
                 observation.Timestamp,
                 _timeZone);
             if (!epoch.BaselineKnown || epoch.IsAmbiguous)
             {
-                day.IsPartial = true;
+                timelineDay.IsPartial = true;
                 epoch.BaselineKnown = true;
             }
 
-            if (day.ObservationCount < int.MaxValue)
+            if (timelineDay.ObservationCount < int.MaxValue)
             {
-                day.ObservationCount++;
+                timelineDay.ObservationCount++;
             }
+        }
+
+        foreach (var day in days.Values)
+        {
+            if (!authoritativeTimelineByDate.TryGetValue(
+                    day.LocalDate,
+                    out var authority) ||
+                !authority.Days.TryGetValue(
+                    day.LocalDate,
+                    out var authorityDay))
+            {
+                continue;
+            }
+
+            var components = new List<DailyWeeklyRateLimitUsageBuilder>
+            {
+                authorityDay,
+            };
+
+            // Preserve a genuine reset occurring inside a local day, but do
+            // not add unrelated overlapping schedules. A predecessor is
+            // included only when its reset instant is the selected timeline's
+            // exact seven-day window start.
+            if (authority.Cluster is { } authorityCluster)
+            {
+                var windowStart =
+                    authorityCluster.CanonicalResetAt.AddMinutes(
+                        -WeeklyRateLimitWindowMinutes);
+                if (ToLocalDate(windowStart) == day.LocalDate &&
+                    resetClusters.TryGetPredecessor(
+                        authorityCluster,
+                        out var predecessorCluster) &&
+                    timelines.TryGetValue(
+                        predecessorCluster,
+                        out var predecessorTimeline) &&
+                    predecessorTimeline.Days.TryGetValue(
+                        day.LocalDate,
+                        out var predecessorDay))
+                {
+                    components.Insert(0, predecessorDay);
+                }
+            }
+
+            day.ConsumedPercentagePoints = components.Sum(
+                static component =>
+                    component.ConsumedPercentagePoints ?? 0d);
+            day.LastObservedUsedPercent =
+                authorityDay.LastObservedUsedPercent;
+            day.LastObservedAt = authorityDay.LastObservedAt;
+            day.IsPartial |= components.Any(
+                static component => component.IsPartial);
+            day.ObservationCount = components.Aggregate(
+                0,
+                static (count, component) =>
+                    count >= int.MaxValue - component.ObservationCount
+                        ? int.MaxValue
+                        : count + component.ObservationCount);
         }
 
         DailyWeeklyRateLimitUsageBuilder? previousDay = null;
@@ -1777,10 +1820,6 @@ public sealed class UsageRepository
         DateTimeOffset FirstObservedAt,
         DateTimeOffset LastObservedAt);
 
-    private sealed record WeeklyResetClusterSelection(
-        WeeklyResetCluster? Cluster,
-        bool IsAmbiguous);
-
     private sealed class WeeklyResetClusterIndex
     {
         private readonly IReadOnlyList<WeeklyResetCluster> _clusters;
@@ -1846,34 +1885,27 @@ public sealed class UsageRepository
                 resetAt.UtcTicks,
                 out cluster!);
 
-        public WeeklyResetClusterSelection SelectCanonicalCluster(
-            DateTimeOffset observationTimestamp,
-            WeeklyResetCluster? previous)
+        public bool TryGetPredecessor(
+            WeeklyResetCluster cluster,
+            out WeeklyResetCluster predecessor)
         {
-            var eligible = _clusters
-                .Where(cluster =>
-                    cluster.MaximumResetAt > observationTimestamp &&
-                    cluster.MinimumResetAt - _window - _tolerance <=
-                    observationTimestamp &&
-                    cluster.LastObservedAt >= observationTimestamp &&
-                    (previous is null ||
-                     cluster.MinimumResetAt >
-                     previous.MaximumResetAt + _tolerance))
+            var expectedResetAt =
+                cluster.CanonicalResetAt - _window;
+            predecessor = _clusters
+                .Where(candidate =>
+                    !ReferenceEquals(candidate, cluster) &&
+                    candidate.MinimumResetAt <=
+                    expectedResetAt + _tolerance &&
+                    candidate.MaximumResetAt >=
+                    expectedResetAt - _tolerance)
                 .OrderByDescending(static cluster =>
                     cluster.SupportCount)
-                .ThenByDescending(static cluster =>
-                    cluster.ObservationSpan)
                 .ThenByDescending(static cluster =>
                     cluster.LastObservedAt)
                 .ThenBy(static cluster =>
                     cluster.CanonicalResetAt)
-                .ToArray();
-
-            return new WeeklyResetClusterSelection(
-                eligible.FirstOrDefault(),
-                eligible.Length > 1 ||
-                eligible.FirstOrDefault()?.IsCanonicalCandidateAmbiguous ==
-                true);
+                .FirstOrDefault()!;
+            return predecessor is not null;
         }
     }
 
@@ -1968,6 +2000,34 @@ public sealed class UsageRepository
         public DateTimeOffset? LastAcceptedTimestamp { get; set; }
 
         public double? LastAcceptedUsedPercent { get; set; }
+    }
+
+    private sealed class WeeklyRateLimitTimelineState(
+        WeeklyResetCluster? cluster,
+        WeeklyRateLimitEpochState epoch)
+    {
+        public WeeklyResetCluster? Cluster { get; } = cluster;
+
+        public WeeklyRateLimitEpochState Epoch { get; } = epoch;
+
+        public Dictionary<DateOnly, DailyWeeklyRateLimitUsageBuilder> Days
+        {
+            get;
+        } = [];
+
+        public DailyWeeklyRateLimitUsageBuilder GetOrCreateDay(
+            DateOnly localDate)
+        {
+            if (!Days.TryGetValue(localDate, out var day))
+            {
+                day = new DailyWeeklyRateLimitUsageBuilder(
+                    localDate,
+                    isPartial: false);
+                Days.Add(localDate, day);
+            }
+
+            return day;
+        }
     }
 
     private sealed class DailyWeeklyRateLimitUsageBuilder(
