@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using CodexUsageWidget.Core;
 
 namespace CodexUsageWidget.Services;
 
@@ -43,11 +44,32 @@ public sealed class SettingsService
                 FileShare.ReadWrite | FileShare.Delete,
                 16 * 1024,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var settings = await JsonSerializer.DeserializeAsync<AppSettings>(
+            using var document = await JsonDocument.ParseAsync(
                 stream,
-                SerializerOptions,
-                cancellationToken).ConfigureAwait(false);
-            return (settings ?? new AppSettings()).Normalize();
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            var settings = document.RootElement.Deserialize<AppSettings>(
+                SerializerOptions);
+            settings ??= new AppSettings();
+
+            var hasTransparencySemanticsVersion =
+                document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.EnumerateObject().Any(
+                    property => string.Equals(
+                        property.Name,
+                        "glassTransparencySemanticsVersion",
+                        StringComparison.OrdinalIgnoreCase));
+            if (!hasTransparencySemanticsVersion ||
+                settings.GlassTransparencySemanticsVersion <
+                GlassTransparencyPolicy.CurrentSemanticsVersion)
+            {
+                settings.GlassTransparencyPercent =
+                    GlassTransparencyPolicy.MigrateLegacyPercent(
+                        settings.GlassTransparencyPercent);
+                settings.GlassTransparencySemanticsVersion =
+                    GlassTransparencyPolicy.CurrentSemanticsVersion;
+            }
+
+            return settings.Normalize();
         }
         catch (JsonException)
         {

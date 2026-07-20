@@ -48,6 +48,8 @@ public partial class MainWindow : Window
         CollapsedWidgetMode.Circle;
     private int _glassTransparencyPercent =
         GlassTransparencyPolicy.DefaultPercent;
+    private System.Windows.Media.Color[] _panelGradientBaseColors = [];
+    private System.Windows.Media.Color[] _collapsedGradientBaseColors = [];
     private DispatcherOperation? _pendingBackdropRefreshOperation;
     private CancellationTokenSource? _backdropRefreshCancellation;
     private int _backdropRefreshGeneration;
@@ -211,6 +213,10 @@ public partial class MainWindow : Window
             useLightTheme ? "#FFE68132" : "#FFFFA052");
         Resources["CriticalBrush"] = CreateBrush("#FF6B72");
         Resources["TransparentBrush"] = System.Windows.Media.Brushes.Transparent;
+        _panelGradientBaseColors =
+            visuals.PanelGradient.Select(ParseColor).ToArray();
+        _collapsedGradientBaseColors =
+            visuals.CollapsedGradient.Select(ParseColor).ToArray();
         Resources["PanelBackgroundBrush"] =
             CreateGradientBrush(visuals.PanelGradient, middleOffset: 0.48);
         Resources["CollapsedBackgroundBrush"] =
@@ -290,15 +296,15 @@ public partial class MainWindow : Window
 
     private void ApplyGlassTransparencyResources()
     {
-        var opacityFactor = _highContrastEnabled
-            ? 1d
-            : GlassTransparencyPolicy.ToOpacityFactor(
+        var backdropOpacityFactor = _highContrastEnabled
+            ? 0d
+            : GlassTransparencyPolicy.ToBackdropOpacityFactor(
                 _glassTransparencyPercent);
 
         Resources["CollapsedBackdropOpacity"] =
-            BaseCollapsedBackdropOpacity * opacityFactor;
+            BaseCollapsedBackdropOpacity * backdropOpacityFactor;
         Resources["ExpandedBackdropOpacity"] =
-            BaseExpandedBackdropOpacity * opacityFactor;
+            BaseExpandedBackdropOpacity * backdropOpacityFactor;
 
         if (_highContrastEnabled)
         {
@@ -306,15 +312,48 @@ public partial class MainWindow : Window
         }
 
         if (Resources["CollapsedBackgroundBrush"] is
-            System.Windows.Media.Brush collapsedBrush)
+            LinearGradientBrush collapsedBrush)
         {
-            collapsedBrush.Opacity = opacityFactor;
+            ApplyGlassTransparency(
+                collapsedBrush,
+                _collapsedGradientBaseColors,
+                _glassTransparencyPercent);
         }
 
         if (Resources["PanelBackgroundBrush"] is
-            System.Windows.Media.Brush panelBrush)
+            LinearGradientBrush panelBrush)
         {
-            panelBrush.Opacity = opacityFactor;
+            ApplyGlassTransparency(
+                panelBrush,
+                _panelGradientBaseColors,
+                _glassTransparencyPercent);
+        }
+    }
+
+    private static void ApplyGlassTransparency(
+        LinearGradientBrush brush,
+        IReadOnlyList<System.Windows.Media.Color> baseColors,
+        int transparencyPercent)
+    {
+        if (brush.GradientStops.Count != baseColors.Count)
+        {
+            return;
+        }
+
+        brush.Opacity =
+            GlassTransparencyPolicy.ToSurfaceOpacityFactor(
+                transparencyPercent);
+        for (var index = 0; index < baseColors.Count; index++)
+        {
+            var baseColor = baseColors[index];
+            brush.GradientStops[index].Color =
+                System.Windows.Media.Color.FromArgb(
+                    GlassTransparencyPolicy.ToSurfaceColorAlpha(
+                        baseColor.A,
+                        transparencyPercent),
+                    baseColor.R,
+                    baseColor.G,
+                    baseColor.B);
         }
     }
 

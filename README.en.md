@@ -81,10 +81,11 @@ software-blurs that snapshot on a background thread and uses the frozen image
 inside the WPF surface. There is no continuous screen capture, live backdrop
 blur, rendering loop, or always-running animation.
 
-Appearance includes a `0%–100%` glass-transparency slider. `0%` uses the full,
-opaque glass surface and is the default for new installations. Higher values
-make the main glass background more transparent. `100%` is the safest maximum:
-the app retains a 1% material and hit-test layer so controls, dragging, and
+Appearance includes a `0%–100%` glass-transparency slider. `0%` is fully
+opaque, while `50%` exactly preserves the original glass look and is the
+default for new installations. Higher values make the main glass background
+more transparent. `100%` exactly matches the previous `99%` safe endpoint:
+the app retains a nonzero material and hit-test layer so controls, dragging, and
 pointer recognition remain reliable. Text, icons, progress lines, and status
 colors remain fully opaque. Changes preview immediately; Cancel restores the
 previous value and Save persists it. Moving the slider only changes in-memory
@@ -227,9 +228,12 @@ session_index.jsonl
   consumed during that local calendar day—not an end-of-day cumulative snapshot
   and not a value inherited from the previous day.
 - Within each observed reset window, daily consumption advances only from a
-  monotonic high-water mark. Stale lower concurrent snapshots and reset drops
-  do not create negative or duplicate usage. Daily change compares the two
-  daily-consumption values only when both are available.
+  monotonic high-water mark. `reset_at` values within 60 seconds are clustered
+  into one logical window and one canonical timeline is selected from parallel
+  logs, preventing the same increase from being added more than once. Stale
+  lower concurrent snapshots and reset drops do not create negative or
+  duplicate usage. Daily change compares the two daily-consumption values only
+  when both are available.
 - Historical observations already present in local logs or the index can be
   viewed immediately. New observations are incrementally indexed only after
   an explicit statistics refresh or opening the weekly-quota detail. A blank

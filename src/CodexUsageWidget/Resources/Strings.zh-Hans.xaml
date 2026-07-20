@@ -53,7 +53,7 @@
     <system:String x:Key="Loc.ThemeDescription">系统模式通过事件同步，不进行轮询。</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">主题模式</system:String>
     <system:String x:Key="Loc.GlassTransparency">玻璃透明度</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">0% 为完整玻璃；100% 为保持拖动与识别的最大安全透明度。调整时实时预览。</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% 完全不透明；50% 为默认玻璃效果；100% 为保持拖动与识别的最大安全透明度。调整时实时预览。</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">玻璃透明度</system:String>
     <system:String x:Key="Loc.FollowSystem">跟随系统</system:String>
     <system:String x:Key="Loc.Light">浅色</system:String>

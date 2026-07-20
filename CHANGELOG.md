@@ -19,22 +19,29 @@ This project follows [Semantic Versioning](https://semver.org/).
   表达剩余额度状态，在通知区域小尺寸下更清晰。
 - Redesigned the original app and tray icon as a clearer six-lobe interlocking
   hollow-line mark with a theme-aware status dot.
-- 修正玻璃透明度语义：`0%` 为完整不透明玻璃并保持默认；`100%` 对应旧版
-  `99%` 的视觉结果，保留 `1%` 安全材质与命中层，确保拖动和鼠标识别可靠。
-- Corrected glass-transparency semantics: `0%` is the full opaque glass
-  surface, while `100%` maps to the previous `99%` visual result and retains
-  a 1% safety layer for reliable dragging and hit testing.
+- 修正玻璃透明度语义：`0%` 为完全不透明，`50%` 精确保留原始玻璃效果并作为
+  新默认值；`100%` 精确对应旧版 `99%` 的视觉结果，保留非零安全材质与命中层，
+  确保拖动和鼠标识别可靠。旧配置会一次性迁移到新刻度，升级后外观不突变。
+- Corrected glass-transparency semantics: `0%` is fully opaque, `50%` exactly
+  preserves the original glass look and is the new default, while `100%`
+  exactly maps to the previous `99%` visual result with a nonzero safety layer. Existing settings
+  migrate once so upgrades retain their prior appearance.
 - 透明度滑杆提供实时预览；取消设置恢复原值，保存后持久化。预览只改变内存中的
   玻璃合成强度，不读取日志、查询统计或写入 SQLite。
 - Added live transparency preview with Cancel rollback and persisted Save,
   without log reads, statistics queries, or SQLite writes.
 - 周额度七日图改为显示各本地自然日观测到的消耗百分点。算法按服务端重置周期
-  维护单调高水位，仅累计上升量，忽略并发旧快照和重置下降；缺少当天起始基线时
-  以“至少”标记可观测下限，不输出伪精确的日间对比。
+  维护单调高水位，仅累计上升量，忽略并发旧快照和重置下降；相差 60 秒内的
+  `reset_at` 会归并为同一逻辑周期并选择唯一主时间线，避免并行日志把同一次
+  消耗重复相加。缺少当天起始基线时以“至少”标记可观测下限，不输出伪精确的
+  日间对比。
 - Changed the seven-day weekly-quota chart to reconstructed daily observed
   consumption. Per-reset-window monotonic high-water marks ignore stale
-  concurrent snapshots and reset drops; days missing a start baseline are
-  labeled as lower bounds instead of reporting false precision.
+  concurrent snapshots and reset drops. `reset_at` values within 60 seconds
+  are treated as one logical window with a single canonical timeline, so
+  parallel logs cannot add the same consumption more than once. Days missing
+  a start baseline are labeled as lower bounds instead of reporting false
+  precision.
 
 ### 兼容性 / Compatibility
 

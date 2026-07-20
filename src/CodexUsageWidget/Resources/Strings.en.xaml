@@ -53,7 +53,7 @@
     <system:String x:Key="Loc.ThemeDescription">System mode follows Windows events without polling.</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">Theme mode</system:String>
     <system:String x:Key="Loc.GlassTransparency">Glass transparency</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">0% keeps the full glass surface; 100% is the safest maximum transparency that preserves dragging and hit testing. Changes preview live.</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% is fully opaque; 50% is the default glass look; 100% is the safest maximum transparency that preserves dragging and hit testing. Changes preview live.</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">Glass transparency</system:String>
     <system:String x:Key="Loc.FollowSystem">Follow system</system:String>
     <system:String x:Key="Loc.Light">Light</system:String>

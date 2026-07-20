@@ -13,6 +13,8 @@ public sealed class LocalizationResourceContractTests
         "src/CodexUsageWidget/SettingsWindow.xaml";
     private const string AppSettingsPath =
         "src/CodexUsageWidget/Services/AppSettings.cs";
+    private const string SettingsServicePath =
+        "src/CodexUsageWidget/Services/SettingsService.cs";
 
     private static readonly string[] ProductionWindowPaths =
     [
@@ -272,6 +274,32 @@ public sealed class LocalizationResourceContractTests
         Assert.Contains(
             "GlassTransparencyPolicy.Normalize(",
             settings,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsService_MigratesLegacyGlassTransparencyOnlyOnce()
+    {
+        string settings = File.ReadAllText(
+            FindRepositoryFile(AppSettingsPath));
+        string service = File.ReadAllText(
+            FindRepositoryFile(SettingsServicePath));
+
+        Assert.Contains(
+            "GlassTransparencySemanticsVersion",
+            settings,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"glassTransparencySemanticsVersion\"",
+            service,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GlassTransparencyPolicy.MigrateLegacyPercent(",
+            service,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GlassTransparencyPolicy.CurrentSemanticsVersion",
+            service,
             StringComparison.Ordinal);
     }
 

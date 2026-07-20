@@ -56,6 +56,9 @@ public sealed class AppSettings
     public int GlassTransparencyPercent { get; set; } =
         GlassTransparencyPolicy.DefaultPercent;
 
+    public int GlassTransparencySemanticsVersion { get; set; } =
+        GlassTransparencyPolicy.CurrentSemanticsVersion;
+
     public double? WindowLeft { get; set; }
 
     public double? WindowTop { get; set; }
@@ -76,6 +79,8 @@ public sealed class AppSettings
             CollapsedWidgetModePolicy.Parse(CollapsedMode));
         GlassTransparencyPercent = GlassTransparencyPolicy.Normalize(
             GlassTransparencyPercent);
+        GlassTransparencySemanticsVersion =
+            GlassTransparencyPolicy.CurrentSemanticsVersion;
         SelectedPeriod = SelectedPeriod is "Today" or "Last7Days" or "ThisMonth" or "AllTime"
             ? SelectedPeriod
             : "Today";
