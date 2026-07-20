@@ -1183,15 +1183,17 @@
                                                    FontWeight="SemiBold"
                                                    Foreground="{DynamicResource PrimaryTextBrush}">
                             <Run Text="{Binding HoveredWeeklyQuotaDay.LongDateLabel, Mode=OneWay}" />
-                                            <Run Text="  " />
-                                            <Run Text="{Binding HoveredWeeklyQuotaDay.ClosingDisplay, Mode=OneWay}" />
-                                        </TextBlock>
-                                        <TextBlock Margin="0,2,0,0"
-                                                   FontSize="9"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}">
-                                            <Run Text="{Binding HoveredWeeklyQuotaDay.ChangeDisplay, Mode=OneWay}" />
-                                            <Run Text=" · " />
-                                            <Run Text="{Binding HoveredWeeklyQuotaDay.LastObservedDisplay, Mode=OneWay}" />
+                                             <Run Text="  " />
+                                             <Run Text="{Binding HoveredWeeklyQuotaDay.DailyConsumedDisplay, Mode=OneWay}" />
+                                         </TextBlock>
+                                         <TextBlock Margin="0,2,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource SecondaryTextBrush}">
+                                             <Run Text="{Binding HoveredWeeklyQuotaDay.ChangeDisplay, Mode=OneWay}" />
+                                             <Run Text=" · " />
+                                             <Run Text="{Binding HoveredWeeklyQuotaDay.ClosingDisplay, Mode=OneWay}" />
+                                             <Run Text=" · " />
+                                             <Run Text="{Binding HoveredWeeklyQuotaDay.LastObservedDisplay, Mode=OneWay}" />
                                         </TextBlock>
                                     </StackPanel>
                                 </Border>

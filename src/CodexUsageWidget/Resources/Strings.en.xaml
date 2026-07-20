@@ -30,11 +30,11 @@
     <system:String x:Key="Loc.Tasks">Tasks</system:String>
     <system:String x:Key="Loc.TopNinePrefix" xml:space="preserve">Top 9 </system:String>
     <system:String x:Key="Loc.OtherSeparator" xml:space="preserve"> · Other </system:String>
-    <system:String x:Key="Loc.WeeklyQuotaObservations">Daily weekly-quota observations</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaSubtitle">Daily closing value · Net change from previous day</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaObservations">Daily weekly-quota usage</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaSubtitle">Daily usage · Change from previous day</system:String>
     <system:String x:Key="Loc.Updating">Updating</system:String>
     <system:String x:Key="Loc.LoadingWeeklyHistory">Reading weekly-quota history…</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaFootnote">Daily closing observations</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaFootnote">Reset-window increments reconstructed from direct logs</system:String>
     <system:String x:Key="Loc.RemainingAutomationFormat">Codex remaining quota {0}</system:String>
 
     <system:String x:Key="Loc.SettingsWindowTitle">Codex Usage Settings</system:String>
@@ -46,12 +46,14 @@
     <system:String x:Key="Loc.AlwaysOnTop">Always on top</system:String>
     <system:String x:Key="Loc.CollapseImmediately">Collapse immediately when the pointer leaves</system:String>
     <system:String x:Key="Loc.StartWithWindows">Start after signing in to Windows</system:String>
+    <system:String x:Key="Loc.PauseMonitoringWhenDisplayOff">Pause monitoring while the display is off or the session is locked (recommended)</system:String>
+    <system:String x:Key="Loc.PauseMonitoringWhenDisplayOffDescription">Monitoring resumes after the display is on and the session is unlocked, with one latest-quota calibration.</system:String>
     <system:String x:Key="Loc.Appearance">Appearance</system:String>
     <system:String x:Key="Loc.Theme">Theme</system:String>
     <system:String x:Key="Loc.ThemeDescription">System mode follows Windows events without polling.</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">Theme mode</system:String>
     <system:String x:Key="Loc.GlassTransparency">Glass transparency</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">Higher values make the glass background more transparent; text and icons stay fully visible.</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% is fully opaque; 50% is the default glass look; 100% is the safest maximum transparency that preserves dragging and hit testing. Changes preview live.</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">Glass transparency</system:String>
     <system:String x:Key="Loc.FollowSystem">Follow system</system:String>
     <system:String x:Key="Loc.Light">Light</system:String>
@@ -103,11 +105,14 @@
     <system:String x:Key="Loc.BuildingHistoryFormat">Building history index {0:P0}</system:String>
     <system:String x:Key="Loc.PreviousDayChangeFormat">vs previous day {0:+0.#;-0.#;0} pp</system:String>
     <system:String x:Key="Loc.PreviousDayUnknown">vs previous day —</system:String>
+    <system:String x:Key="Loc.DailyConsumedFormat">Used that day {0:0.#}%</system:String>
+    <system:String x:Key="Loc.DailyConsumedMinimumFormat">At least {0:0.#}% used that day (start-of-day observation missing)</system:String>
+    <system:String x:Key="Loc.DailyConsumedUnknown">Daily usage unknown</system:String>
     <system:String x:Key="Loc.WeeklyUsedOnlyFormat">Week used {0:0.#}%</system:String>
     <system:String x:Key="Loc.WeeklyUsageUnknown">Weekly usage unknown</system:String>
     <system:String x:Key="Loc.LastObservedFormat">Last observed {0:HH:mm}</system:String>
     <system:String x:Key="Loc.NoObservationToday">No observation that day</system:String>
-    <system:String x:Key="Loc.WeeklyTooltipObservedFormat">{0}  {1}&#10;{2} · {3}</system:String>
+    <system:String x:Key="Loc.WeeklyTooltipObservedFormat">{0}  {1}&#10;{2} · {3} · {4}</system:String>
     <system:String x:Key="Loc.WeeklyTooltipMissingFormat">{0}  No weekly-quota observation</system:String>
     <system:String x:Key="Loc.LastRefreshFormat">Last refreshed {0:HH:mm}</system:String>
     <system:String x:Key="Loc.NeverRefreshed">Not refreshed yet</system:String>

@@ -126,7 +126,7 @@ public sealed class WeeklyQuotaSparkline : FrameworkElement
                     usableWidth * (index + 0.5d) / count;
             if (index >= days.Length ||
                 !days[index].IsObserved ||
-                days[index].ClosingUsedPercent is not { } closing)
+                days[index].DailyConsumedPercent is not { } consumed)
             {
                 drawingContext.DrawEllipse(
                     null,
@@ -138,7 +138,7 @@ public sealed class WeeklyQuotaSparkline : FrameworkElement
                 continue;
             }
 
-            var clamped = Math.Clamp(closing, 0d, 100d);
+            var clamped = Math.Clamp(consumed, 0d, 100d);
             var y = verticalPadding +
                     usableHeight * (1d - clamped / 100d);
             var point = new Point(x, y);

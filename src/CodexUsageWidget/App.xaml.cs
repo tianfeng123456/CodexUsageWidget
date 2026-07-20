@@ -17,16 +17,21 @@ public partial class App : System.Windows.Application
     private SettingsService? settingsService;
     private StartupRegistrationService? startupRegistration;
     private TrayIconService? trayIcon;
+    private DisplayPowerMonitor? displayPowerMonitor;
     private DashboardController? dashboard;
     private MainViewModel? viewModel;
     private MainWindow? mainWindow;
     private DispatcherTimer? settingsSaveTimer;
     private Task? dashboardStartTask;
+    private readonly SemaphoreSlim monitoringLifecycleGate = new(1, 1);
     private AppSettings settings = new();
     private bool exitRequested;
     private bool cleanupComplete;
     private bool systemEventsSubscribed;
     private bool settingsWriteWarningShown;
+    private bool displayOff;
+    private bool sessionLocked;
+    private bool systemSuspended;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -86,10 +91,15 @@ public partial class App : System.Windows.Application
                 settingsService.AppDataDirectory);
             trayIcon = CreateTrayIcon();
             trayIcon.SetStartupEnabled(settings.StartWithWindows);
+            displayPowerMonitor = new DisplayPowerMonitor(mainWindow);
+            displayPowerMonitor.DisplayStateChanged +=
+                DisplayPowerMonitorOnDisplayStateChanged;
             SystemEvents.UserPreferenceChanged +=
                 SystemEventsOnUserPreferenceChanged;
             SystemEvents.PowerModeChanged +=
                 SystemEventsOnPowerModeChanged;
+            SystemEvents.SessionSwitch +=
+                SystemEventsOnSessionSwitch;
             systemEventsSubscribed = true;
 
             mainWindow.Show();
@@ -130,7 +140,17 @@ public partial class App : System.Windows.Application
                 SystemEventsOnUserPreferenceChanged;
             SystemEvents.PowerModeChanged -=
                 SystemEventsOnPowerModeChanged;
+            SystemEvents.SessionSwitch -=
+                SystemEventsOnSessionSwitch;
             systemEventsSubscribed = false;
+        }
+
+        if (displayPowerMonitor is not null)
+        {
+            displayPowerMonitor.DisplayStateChanged -=
+                DisplayPowerMonitorOnDisplayStateChanged;
+            displayPowerMonitor.Dispose();
+            displayPowerMonitor = null;
         }
 
         if (!cleanupComplete)
@@ -371,6 +391,7 @@ public partial class App : System.Windows.Application
             var previousHome = settings.CodexHomePath;
             settings = dialog.ResultSettings.Normalize();
             ApplySettingsToUi(settings);
+            _ = ApplyMonitoringLifecycleAsync();
 
             try
             {
@@ -496,6 +517,13 @@ public partial class App : System.Windows.Application
 
         trayIcon?.Dispose();
         trayIcon = null;
+        if (displayPowerMonitor is not null)
+        {
+            displayPowerMonitor.DisplayStateChanged -=
+                DisplayPowerMonitorOnDisplayStateChanged;
+            displayPowerMonitor.Dispose();
+            displayPowerMonitor = null;
+        }
         if (mainWindow is not null)
         {
             mainWindow.Close();
@@ -673,6 +701,8 @@ public partial class App : System.Windows.Application
         AutoCollapse = settings.AutoCollapse,
         AutoCollapseDelayMs = settings.AutoCollapseDelayMs,
         StartWithWindows = settings.StartWithWindows,
+        PauseMonitoringWhenDisplayOff =
+            settings.PauseMonitoringWhenDisplayOff,
         ThemeMode = settings.ThemeMode,
         LanguageMode = settings.LanguageMode,
         CollapsedMode = settings.CollapsedMode,
@@ -776,13 +806,113 @@ public partial class App : System.Windows.Application
         PowerModeChangedEventArgs e)
     {
         if (exitRequested ||
-            e.Mode != PowerModes.Resume ||
-            dashboard is null)
+            e.Mode is not (PowerModes.Suspend or PowerModes.Resume))
         {
             return;
         }
 
-        _ = dashboard.RecoverAfterResumeAsync(lifetime.Token);
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                systemSuspended = e.Mode == PowerModes.Suspend;
+                _ = ApplyMonitoringLifecycleAsync(
+                    forceResumeRecovery: e.Mode == PowerModes.Resume);
+            },
+            DispatcherPriority.Send);
+    }
+
+    private void SystemEventsOnSessionSwitch(
+        object sender,
+        SessionSwitchEventArgs e)
+    {
+        if (exitRequested ||
+            e.Reason is not (
+                SessionSwitchReason.SessionLock or
+                SessionSwitchReason.SessionUnlock))
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                sessionLocked =
+                    e.Reason == SessionSwitchReason.SessionLock;
+                _ = ApplyMonitoringLifecycleAsync();
+            },
+            DispatcherPriority.Send);
+    }
+
+    private void DisplayPowerMonitorOnDisplayStateChanged(
+        object? sender,
+        SessionDisplayStateChangedEventArgs e)
+    {
+        if (exitRequested)
+        {
+            return;
+        }
+
+        displayOff = e.State == SessionDisplayState.Off;
+        _ = ApplyMonitoringLifecycleAsync();
+    }
+
+    private async Task ApplyMonitoringLifecycleAsync(
+        bool forceResumeRecovery = false)
+    {
+        if (exitRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            await monitoringLifecycleGate.WaitAsync(lifetime.Token);
+        }
+        catch (OperationCanceledException) when (
+            lifetime.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (ObjectDisposedException) when (exitRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            var shouldPause =
+                settings.PauseMonitoringWhenDisplayOff &&
+                (displayOff || sessionLocked || systemSuspended);
+            mainWindow?.SetDisplayDormant(shouldPause);
+            if (dashboard is null)
+            {
+                return;
+            }
+
+            if (shouldPause)
+            {
+                await dashboard.PauseMonitoringAsync(lifetime.Token);
+            }
+            else if (dashboard.IsMonitoringPaused)
+            {
+                await dashboard.ResumeMonitoringAsync(lifetime.Token);
+            }
+            else if (forceResumeRecovery)
+            {
+                await dashboard.RecoverAfterResumeAsync(lifetime.Token);
+            }
+        }
+        catch (OperationCanceledException) when (
+            lifetime.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (exitRequested)
+        {
+        }
+        finally
+        {
+            monitoringLifecycleGate.Release();
+        }
     }
 
     private static void ApplyWindowPosition(

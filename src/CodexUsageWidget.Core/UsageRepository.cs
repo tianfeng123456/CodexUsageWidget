@@ -8,7 +8,8 @@ public sealed record FileIndexResult(
     long CurrentOffset,
     int InsertedEvents,
     int MalformedLines,
-    bool WasReset)
+    bool WasReset,
+    bool NeedsReplayMigration = false)
 {
     public long BytesProcessed => Math.Max(0, CurrentOffset - PreviousOffset);
 }
@@ -19,11 +20,14 @@ public sealed record IndexedFileMetadata(
     long FileLength,
     long ProcessedOffset,
     long LastWriteUtcTicks,
-    bool IsArchived);
+    bool IsArchived,
+    bool NeedsReplayMigration = false);
 
 public sealed class UsageRepository
 {
     private const int WeeklyRateLimitWindowMinutes = 10_080;
+    private static readonly TimeSpan WeeklyResetTimestampTolerance =
+        TimeSpan.FromSeconds(60);
 
     private readonly string _connectionString;
     private readonly TimeZoneInfo _timeZone;
@@ -78,6 +82,7 @@ public sealed class UsageRepository
                 previous_output INTEGER NULL,
                 previous_reasoning_output INTEGER NULL,
                 replay_boundary_seen INTEGER NOT NULL,
+                first_replay_boundary_offset INTEGER NULL,
                 checkpoint_hash TEXT NOT NULL,
                 is_archived INTEGER NOT NULL,
                 last_scan_utc TEXT NOT NULL
@@ -151,6 +156,7 @@ public sealed class UsageRepository
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureReplayBoundaryOffsetColumnAsync(connection, cancellationToken);
         _initialized = true;
     }
 
@@ -172,7 +178,10 @@ public sealed class UsageRepository
                 file_length,
                 processed_offset,
                 last_write_utc_ticks,
-                is_archived
+                is_archived,
+                is_child,
+                replay_boundary_seen,
+                first_replay_boundary_offset
             FROM file_state;
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -184,7 +193,10 @@ public sealed class UsageRepository
                 reader.GetInt64(2),
                 reader.GetInt64(3),
                 reader.GetInt64(4),
-                reader.GetInt64(5) != 0);
+                reader.GetInt64(5) != 0,
+                reader.GetInt64(6) != 0 &&
+                reader.GetInt64(7) != 0 &&
+                reader.IsDBNull(8));
             result[metadata.FileKey] = metadata;
         }
 
@@ -209,6 +221,7 @@ public sealed class UsageRepository
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var state = await LoadFileStateAsync(connection, sourceKey, cancellationToken);
         var wasReset = false;
+        long? legacyReplayBoundaryOffset = null;
 
         if (state is not null)
         {
@@ -235,6 +248,28 @@ public sealed class UsageRepository
             }
         }
 
+        if (state is
+            {
+                IsChild: true,
+                ReplayBoundarySeen: true,
+                FirstReplayBoundaryOffset: null
+            })
+        {
+            var replayBoundaryOffset =
+                await _parser.FindFirstReplayBoundaryOffsetAsync(
+                    path,
+                    cancellationToken);
+            if (replayBoundaryOffset is not null)
+            {
+                legacyReplayBoundaryOffset = replayBoundaryOffset.Value;
+                state = state with
+                {
+                    FirstReplayBoundaryOffset = replayBoundaryOffset.Value
+                };
+                wasReset = true;
+            }
+        }
+
         var previousOffset = state?.ProcessedOffset ?? 0;
         var checkpoint = state?.ToCheckpoint() ?? LogParseCheckpoint.Empty;
         var parseResult = await _parser.ParseFileAsync(
@@ -242,6 +277,11 @@ public sealed class UsageRepository
             sourceKey,
             checkpoint,
             cancellationToken);
+        var discoveredReplayPrefix =
+            state is not null &&
+            parseResult.Checkpoint.IsChildSession &&
+            state.FirstReplayBoundaryOffset is null &&
+            parseResult.Checkpoint.FirstReplayBoundaryOffset is not null;
 
         var currentHash = await SharedFileAccess.ComputeCheckpointHashAsync(
             path,
@@ -249,6 +289,27 @@ public sealed class UsageRepository
             cancellationToken);
 
         using var transaction = connection.BeginTransaction();
+        if (legacyReplayBoundaryOffset is long legacyReplayCutoff)
+        {
+            await DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                sourceKey,
+                legacyReplayCutoff,
+                cancellationToken);
+        }
+
+        if (discoveredReplayPrefix)
+        {
+            await DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                sourceKey,
+                parseResult.Checkpoint.FirstReplayBoundaryOffset!.Value,
+                cancellationToken);
+            wasReset = true;
+        }
+
         await UpsertFileStateAsync(
             connection,
             transaction,
@@ -316,7 +377,10 @@ public sealed class UsageRepository
             parseResult.Checkpoint.Offset,
             insertedEvents,
             parseResult.MalformedLineCount,
-            wasReset);
+            wasReset,
+            parseResult.Checkpoint.IsChildSession &&
+            parseResult.Checkpoint.ReplayBoundarySeen &&
+            parseResult.Checkpoint.FirstReplayBoundaryOffset is null);
     }
 
     public async Task StoreTitlesAsync(
@@ -606,10 +670,15 @@ public sealed class UsageRepository
     }
 
     /// <summary>
-    /// Returns the final directly observed value of the exact <c>codex</c>
-    /// 10,080-minute allowance meter for every local calendar date touched by
-    /// a half-open interval. Existing raw observations are read only; this
-    /// method never mutates the index.
+    /// Reconstructs the observed daily increase of the exact <c>codex</c>
+    /// 10,080-minute allowance meter for every local calendar date touched by a
+    /// half-open interval. Reset timestamps within a small clock/rounding
+    /// tolerance are clustered. Each local day uses the timeline from its last
+    /// valid quota observation, matching the headline quota source, and reports
+    /// only that timeline's monotonic high-water increase for the day. This
+    /// prevents stale snapshots and overlapping schedules from being added
+    /// together. Existing observations are read only; this method never mutates
+    /// the index.
     /// </summary>
     public async Task<IReadOnlyList<DailyWeeklyRateLimitUsage>>
         QueryWeeklyRateLimitDailyUsageAsync(
@@ -629,6 +698,8 @@ public sealed class UsageRepository
 
         var firstDate = ToLocalDate(fromUtc);
         var lastDate = ToLocalDate(toUtc.AddTicks(-1));
+        var historyFromUtc = fromUtc.AddMinutes(
+            -WeeklyRateLimitWindowMinutes);
         var days = CreateDailyRateLimitBuilders(
             firstDate,
             lastDate,
@@ -646,10 +717,15 @@ public sealed class UsageRepository
                         WHEN primary_window_minutes = $weekly_minutes
                             THEN primary_used_percent
                         ELSE secondary_used_percent
-                    END AS used_percent
+                    END AS used_percent,
+                    CASE
+                        WHEN primary_window_minutes = $weekly_minutes
+                            THEN primary_resets_at
+                        ELSE secondary_resets_at
+                    END AS resets_at
                 FROM rate_limit_events
                 WHERE lower(COALESCE(limit_id, '')) = 'codex'
-                  AND timestamp_utc >= $from_utc
+                  AND timestamp_utc >= $history_from_utc
                   AND timestamp_utc < $to_utc
                   AND (
                       (primary_window_minutes = $weekly_minutes
@@ -661,23 +737,35 @@ public sealed class UsageRepository
             )
             SELECT DISTINCT
                 timestamp_utc,
-                used_percent
+                used_percent,
+                resets_at
             FROM weekly_observations
             WHERE used_percent IS NOT NULL
             ORDER BY
                 timestamp_utc,
-                used_percent;
+                used_percent,
+                resets_at;
             """;
         command.Parameters.AddWithValue(
             "$weekly_minutes",
             WeeklyRateLimitWindowMinutes);
         command.Parameters.AddWithValue(
-            "$from_utc",
-            fromUtc.UtcDateTime.ToString("O"));
+            "$history_from_utc",
+            historyFromUtc.UtcDateTime.ToString("O"));
         command.Parameters.AddWithValue(
             "$to_utc",
             toUtc.UtcDateTime.ToString("O"));
 
+        var resetClusters = await LoadWeeklyResetClustersAsync(
+            connection,
+            historyFromUtc,
+            toUtc,
+            cancellationToken);
+        var timelines =
+            new Dictionary<WeeklyResetCluster, WeeklyRateLimitTimelineState>();
+        var authoritativeTimelineByDate =
+            new Dictionary<DateOnly, WeeklyRateLimitTimelineState>();
+        WeeklyRateLimitTimelineState? unknownResetTimeline = null;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -687,37 +775,215 @@ public sealed class UsageRepository
                 continue;
             }
 
-            if (observation.Timestamp < fromUtc ||
-                observation.Timestamp >= toUtc)
+            if (observation.Timestamp >= toUtc)
             {
                 continue;
             }
 
-            var localDate = ToLocalDate(observation.Timestamp);
-            if (!days.TryGetValue(localDate, out var day))
+            // A snapshot that still names an already expired reset window is a
+            // late write from another session. It must not alter the new
+            // window's high-water mark or the day that received the stale row.
+            if (observation.ResetsAt is { } resetAt &&
+                (resetAt <= observation.Timestamp ||
+                 resetAt.AddMinutes(-WeeklyRateLimitWindowMinutes) >
+                 observation.Timestamp + WeeklyResetTimestampTolerance))
             {
                 continue;
             }
 
-            day.LastObservedUsedPercent = observation.UsedPercent;
-            day.LastObservedAt = TimeZoneInfo.ConvertTime(
+            WeeklyRateLimitTimelineState timeline;
+            if (observation.ResetsAt is { } observedReset)
+            {
+                if (!resetClusters.TryGetCluster(
+                        observedReset,
+                        out var observationCluster))
+                {
+                    continue;
+                }
+
+                if (!timelines.TryGetValue(
+                        observationCluster,
+                        out timeline!))
+                {
+                    var resetWindowStartedAt =
+                        observationCluster.CanonicalResetAt.AddMinutes(
+                            -WeeklyRateLimitWindowMinutes);
+                    var startsInsideRequestedInterval =
+                        resetWindowStartedAt >= fromUtc &&
+                        resetWindowStartedAt < toUtc;
+                    timeline = new WeeklyRateLimitTimelineState(
+                        observationCluster,
+                        new WeeklyRateLimitEpochState(
+                            startsInsideRequestedInterval
+                                ? 0d
+                                : observation.UsedPercent,
+                            baselineKnown:
+                                observation.Timestamp < fromUtc ||
+                                startsInsideRequestedInterval,
+                            isAmbiguous: false));
+                    timelines.Add(observationCluster, timeline);
+                }
+            }
+            else
+            {
+                // Older log formats can omit resets_at. Use one best-effort
+                // timeline only when no dated reset schedule is available.
+                if (resetClusters.Count > 0)
+                {
+                    continue;
+                }
+
+                unknownResetTimeline ??= new WeeklyRateLimitTimelineState(
+                    cluster: null,
+                    new WeeklyRateLimitEpochState(
+                        observation.UsedPercent,
+                        baselineKnown: observation.Timestamp < fromUtc,
+                        isAmbiguous: true));
+                timeline = unknownResetTimeline;
+            }
+
+            DateOnly? observationDate = null;
+            if (observation.Timestamp >= fromUtc)
+            {
+                var localDate = ToLocalDate(observation.Timestamp);
+                if (days.ContainsKey(localDate))
+                {
+                    observationDate = localDate;
+                    // The final valid observation of each local day is the
+                    // same authority used by the headline quota. Because the
+                    // SQL stream is globally ordered, the last assignment
+                    // wins without a second per-day query.
+                    authoritativeTimelineByDate[localDate] = timeline;
+                }
+            }
+
+            var epoch = timeline.Epoch;
+            if (epoch.LastAcceptedTimestamp == observation.Timestamp &&
+                epoch.LastAcceptedUsedPercent == observation.UsedPercent)
+            {
+                continue;
+            }
+
+            if (observation.UsedPercent < epoch.HighWaterUsedPercent)
+            {
+                // Concurrent sessions can emit an older cumulative snapshot
+                // after a newer one. It is not an accepted observation and
+                // must not replace the day's time or sample count.
+                continue;
+            }
+
+            var increase =
+                observation.UsedPercent - epoch.HighWaterUsedPercent;
+            if (observation.UsedPercent > epoch.HighWaterUsedPercent)
+            {
+                epoch.HighWaterUsedPercent = observation.UsedPercent;
+            }
+
+            epoch.LastAcceptedTimestamp = observation.Timestamp;
+            epoch.LastAcceptedUsedPercent = observation.UsedPercent;
+
+            if (observation.Timestamp < fromUtc)
+            {
+                epoch.BaselineKnown = true;
+                continue;
+            }
+
+            if (observationDate is not { } acceptedDate)
+            {
+                continue;
+            }
+
+            var timelineDay = timeline.GetOrCreateDay(acceptedDate);
+            timelineDay.ConsumedPercentagePoints ??= 0d;
+            timelineDay.ConsumedPercentagePoints += increase;
+            timelineDay.LastObservedUsedPercent =
+                epoch.HighWaterUsedPercent;
+            timelineDay.LastObservedAt = TimeZoneInfo.ConvertTime(
                 observation.Timestamp,
                 _timeZone);
-            if (day.ObservationCount < int.MaxValue)
+            if (!epoch.BaselineKnown || epoch.IsAmbiguous)
             {
-                day.ObservationCount++;
+                timelineDay.IsPartial = true;
+                epoch.BaselineKnown = true;
             }
+
+            if (timelineDay.ObservationCount < int.MaxValue)
+            {
+                timelineDay.ObservationCount++;
+            }
+        }
+
+        foreach (var day in days.Values)
+        {
+            if (!authoritativeTimelineByDate.TryGetValue(
+                    day.LocalDate,
+                    out var authority) ||
+                !authority.Days.TryGetValue(
+                    day.LocalDate,
+                    out var authorityDay))
+            {
+                continue;
+            }
+
+            var components = new List<DailyWeeklyRateLimitUsageBuilder>
+            {
+                authorityDay,
+            };
+
+            // Preserve a genuine reset occurring inside a local day, but do
+            // not add unrelated overlapping schedules. A predecessor is
+            // included only when its reset instant is the selected timeline's
+            // exact seven-day window start.
+            if (authority.Cluster is { } authorityCluster)
+            {
+                var windowStart =
+                    authorityCluster.CanonicalResetAt.AddMinutes(
+                        -WeeklyRateLimitWindowMinutes);
+                if (ToLocalDate(windowStart) == day.LocalDate &&
+                    resetClusters.TryGetPredecessor(
+                        authorityCluster,
+                        out var predecessorCluster) &&
+                    timelines.TryGetValue(
+                        predecessorCluster,
+                        out var predecessorTimeline) &&
+                    predecessorTimeline.Days.TryGetValue(
+                        day.LocalDate,
+                        out var predecessorDay))
+                {
+                    components.Insert(0, predecessorDay);
+                }
+            }
+
+            day.ConsumedPercentagePoints = components.Sum(
+                static component =>
+                    component.ConsumedPercentagePoints ?? 0d);
+            day.LastObservedUsedPercent =
+                authorityDay.LastObservedUsedPercent;
+            day.LastObservedAt = authorityDay.LastObservedAt;
+            day.IsPartial |= components.Any(
+                static component => component.IsPartial);
+            day.ObservationCount = components.Aggregate(
+                0,
+                static (count, component) =>
+                    count >= int.MaxValue - component.ObservationCount
+                        ? int.MaxValue
+                        : count + component.ObservationCount);
         }
 
         DailyWeeklyRateLimitUsageBuilder? previousDay = null;
         foreach (var day in days.Values)
         {
             if (day.ObservationCount > 0 &&
-                previousDay?.ObservationCount > 0)
+                !day.IsPartial &&
+                previousDay is
+                {
+                    ObservationCount: > 0,
+                    IsPartial: false,
+                })
             {
                 day.ChangeFromPreviousDayPercentagePoints =
-                    day.LastObservedUsedPercent!.Value -
-                    previousDay.LastObservedUsedPercent!.Value;
+                    day.ConsumedPercentagePoints!.Value -
+                    previousDay.ConsumedPercentagePoints!.Value;
             }
 
             previousDay = day;
@@ -727,6 +993,103 @@ public sealed class UsageRepository
             .Select(static day => day.ToSnapshot())
             .ToArray();
     }
+
+    private static async Task<WeeklyResetClusterIndex>
+        LoadWeeklyResetClustersAsync(
+            SqliteConnection connection,
+            DateTimeOffset historyFromUtc,
+            DateTimeOffset toUtc,
+            CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            WITH weekly_observations AS (
+                SELECT
+                    timestamp_utc,
+                    CASE
+                        WHEN primary_window_minutes = $weekly_minutes
+                            THEN primary_used_percent
+                        ELSE secondary_used_percent
+                    END AS used_percent,
+                    CASE
+                        WHEN primary_window_minutes = $weekly_minutes
+                            THEN primary_resets_at
+                        ELSE secondary_resets_at
+                    END AS resets_at
+                FROM rate_limit_events
+                WHERE lower(COALESCE(limit_id, '')) = 'codex'
+                  AND timestamp_utc >= $history_from_utc
+                  AND timestamp_utc < $to_utc
+                  AND (
+                      (primary_window_minutes = $weekly_minutes
+                       AND primary_used_percent IS NOT NULL)
+                      OR
+                      (secondary_window_minutes = $weekly_minutes
+                       AND secondary_used_percent IS NOT NULL)
+                  )
+            )
+            SELECT
+                resets_at,
+                COUNT(*) AS support_count,
+                MIN(timestamp_utc) AS first_observed_at,
+                MAX(timestamp_utc) AS last_observed_at
+            FROM (
+                SELECT DISTINCT
+                    timestamp_utc,
+                    used_percent,
+                    resets_at
+                FROM weekly_observations
+                WHERE used_percent IS NOT NULL
+                  AND resets_at IS NOT NULL
+            )
+            GROUP BY resets_at
+            ORDER BY resets_at;
+            """;
+        command.Parameters.AddWithValue(
+            "$weekly_minutes",
+            WeeklyRateLimitWindowMinutes);
+        command.Parameters.AddWithValue(
+            "$history_from_utc",
+            historyFromUtc.UtcDateTime.ToString("O"));
+        command.Parameters.AddWithValue(
+            "$to_utc",
+            toUtc.UtcDateTime.ToString("O"));
+
+        var candidates = new List<WeeklyResetCandidate>();
+        await using var reader = await command.ExecuteReaderAsync(
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!TryParseUtcTimestamp(reader.GetString(0), out var resetAt) ||
+                !TryParseUtcTimestamp(reader.GetString(2), out var firstAt) ||
+                !TryParseUtcTimestamp(reader.GetString(3), out var lastAt))
+            {
+                continue;
+            }
+
+            candidates.Add(new WeeklyResetCandidate(
+                resetAt,
+                reader.GetInt64(1),
+                firstAt,
+                lastAt));
+        }
+
+        return WeeklyResetClusterIndex.Create(
+            candidates,
+            WeeklyResetTimestampTolerance,
+            TimeSpan.FromMinutes(WeeklyRateLimitWindowMinutes));
+    }
+
+    private static bool TryParseUtcTimestamp(
+        string value,
+        out DateTimeOffset timestamp) =>
+        DateTimeOffset.TryParse(
+            value,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal |
+            System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out timestamp);
 
     public async Task MarkRefreshCompleteAsync(
         DateTimeOffset completedAt,
@@ -829,6 +1192,144 @@ public sealed class UsageRepository
         return connection;
     }
 
+    private static async Task EnsureReplayBoundaryOffsetColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var exists = false;
+        await using (var inspect = connection.CreateCommand())
+        {
+            inspect.CommandText = "PRAGMA table_info(file_state);";
+            await using var reader = await inspect.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        "first_replay_boundary_offset",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText =
+            """
+            ALTER TABLE file_state
+            ADD COLUMN first_replay_boundary_offset INTEGER NULL;
+            """;
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteReplayPrefixAndRecalculateDailyUsageAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sourceKey,
+        long replayBoundaryOffset,
+        CancellationToken cancellationToken)
+    {
+        var affectedUsageKeys = new List<DailyUsageKey>();
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText =
+                """
+                SELECT DISTINCT local_date, root_task_id
+                FROM token_events
+                WHERE file_key = $key
+                  AND event_offset < $offset;
+                """;
+            select.Parameters.AddWithValue("$key", sourceKey);
+            select.Parameters.AddWithValue("$offset", replayBoundaryOffset);
+            await using var reader =
+                await select.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                affectedUsageKeys.Add(new DailyUsageKey(
+                    reader.GetString(0),
+                    reader.GetString(1)));
+            }
+        }
+
+        foreach (var table in new[] { "token_events", "rate_limit_events" })
+        {
+            await using var delete = connection.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandText =
+                $"DELETE FROM {table} " +
+                "WHERE file_key = $key AND event_offset < $offset;";
+            delete.Parameters.AddWithValue("$key", sourceKey);
+            delete.Parameters.AddWithValue("$offset", replayBoundaryOffset);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var key in affectedUsageKeys)
+        {
+            await RecalculateDailyUsageAsync(
+                connection,
+                transaction,
+                key,
+                cancellationToken);
+        }
+    }
+
+    private static async Task RecalculateDailyUsageAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DailyUsageKey key,
+        CancellationToken cancellationToken)
+    {
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText =
+                """
+                DELETE FROM daily_task_usage
+                WHERE local_date = $date
+                  AND root_task_id = $root_id;
+                """;
+            delete.Parameters.AddWithValue("$date", key.LocalDate);
+            delete.Parameters.AddWithValue("$root_id", key.RootTaskId);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var rebuild = connection.CreateCommand();
+        rebuild.Transaction = transaction;
+        rebuild.CommandText =
+            """
+            INSERT INTO daily_task_usage(
+                local_date,
+                root_task_id,
+                input_tokens,
+                cached_input_tokens,
+                cache_write_input_tokens,
+                output_tokens,
+                reasoning_output_tokens)
+            SELECT
+                local_date,
+                root_task_id,
+                SUM(input_tokens),
+                SUM(cached_input_tokens),
+                SUM(cache_write_input_tokens),
+                SUM(output_tokens),
+                SUM(reasoning_output_tokens)
+            FROM token_events
+            WHERE local_date = $date
+              AND root_task_id = $root_id
+            GROUP BY local_date, root_task_id;
+            """;
+        rebuild.Parameters.AddWithValue("$date", key.LocalDate);
+        rebuild.Parameters.AddWithValue("$root_id", key.RootTaskId);
+        await rebuild.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task<FileState?> LoadFileStateAsync(
         SqliteConnection connection,
         string sourceKey,
@@ -851,6 +1352,7 @@ public sealed class UsageRepository
                 previous_output,
                 previous_reasoning_output,
                 replay_boundary_seen,
+                first_replay_boundary_offset,
                 checkpoint_hash,
                 is_archived
             FROM file_state
@@ -886,8 +1388,9 @@ public sealed class UsageRepository
             reader.GetInt64(6) != 0,
             previous,
             reader.GetInt64(12) != 0,
-            reader.GetString(13),
-            reader.GetInt64(14) != 0);
+            reader.IsDBNull(13) ? null : reader.GetInt64(13),
+            reader.GetString(14),
+            reader.GetInt64(15) != 0);
     }
 
     private static async Task UpsertFileStateAsync(
@@ -921,6 +1424,7 @@ public sealed class UsageRepository
                 previous_output,
                 previous_reasoning_output,
                 replay_boundary_seen,
+                first_replay_boundary_offset,
                 checkpoint_hash,
                 is_archived,
                 last_scan_utc)
@@ -939,6 +1443,7 @@ public sealed class UsageRepository
                 $previous_output,
                 $previous_reasoning,
                 $boundary,
+                $boundary_offset,
                 $hash,
                 $archived,
                 $scan_time)
@@ -956,6 +1461,7 @@ public sealed class UsageRepository
                 previous_output = excluded.previous_output,
                 previous_reasoning_output = excluded.previous_reasoning_output,
                 replay_boundary_seen = excluded.replay_boundary_seen,
+                first_replay_boundary_offset = excluded.first_replay_boundary_offset,
                 checkpoint_hash = excluded.checkpoint_hash,
                 is_archived = excluded.is_archived,
                 last_scan_utc = excluded.last_scan_utc;
@@ -977,6 +1483,11 @@ public sealed class UsageRepository
         command.Parameters.AddWithValue(
             "$boundary",
             checkpoint.ReplayBoundarySeen ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "$boundary_offset",
+            checkpoint.FirstReplayBoundaryOffset is null
+                ? DBNull.Value
+                : checkpoint.FirstReplayBoundaryOffset.Value);
         command.Parameters.AddWithValue("$hash", checkpointHash);
         command.Parameters.AddWithValue("$archived", isArchived ? 1 : 0);
         command.Parameters.AddWithValue(
@@ -1421,9 +1932,23 @@ public sealed class UsageRepository
             return false;
         }
 
+        DateTimeOffset? resetsAt = null;
+        if (reader.FieldCount > 2 &&
+            !reader.IsDBNull(2) &&
+            DateTimeOffset.TryParse(
+                reader.GetString(2),
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal |
+                System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsedReset))
+        {
+            resetsAt = parsedReset;
+        }
+
         observation = new WeeklyRateLimitObservation(
             timestamp,
-            Math.Clamp(reader.GetDouble(1), 0d, 100d));
+            Math.Clamp(reader.GetDouble(1), 0d, 100d),
+            resetsAt);
         return true;
     }
 
@@ -1496,13 +2021,232 @@ public sealed class UsageRepository
 
     private sealed record WeeklyRateLimitObservation(
         DateTimeOffset Timestamp,
-        double UsedPercent);
+        double UsedPercent,
+        DateTimeOffset? ResetsAt);
+
+    private sealed record WeeklyResetCandidate(
+        DateTimeOffset ResetAt,
+        long SupportCount,
+        DateTimeOffset FirstObservedAt,
+        DateTimeOffset LastObservedAt);
+
+    private sealed class WeeklyResetClusterIndex
+    {
+        private readonly IReadOnlyList<WeeklyResetCluster> _clusters;
+        private readonly IReadOnlyDictionary<long, WeeklyResetCluster>
+            _clustersByResetTicks;
+        private readonly TimeSpan _tolerance;
+        private readonly TimeSpan _window;
+
+        private WeeklyResetClusterIndex(
+            IReadOnlyList<WeeklyResetCluster> clusters,
+            IReadOnlyDictionary<long, WeeklyResetCluster>
+                clustersByResetTicks,
+            TimeSpan tolerance,
+            TimeSpan window)
+        {
+            _clusters = clusters;
+            _clustersByResetTicks = clustersByResetTicks;
+            _tolerance = tolerance;
+            _window = window;
+        }
+
+        public int Count => _clusters.Count;
+
+        public static WeeklyResetClusterIndex Create(
+            IEnumerable<WeeklyResetCandidate> candidates,
+            TimeSpan tolerance,
+            TimeSpan window)
+        {
+            var clusters = new List<WeeklyResetCluster>();
+            var byResetTicks = new Dictionary<long, WeeklyResetCluster>();
+            foreach (var candidate in candidates.OrderBy(
+                         static candidate => candidate.ResetAt))
+            {
+                var cluster = clusters.Count > 0 &&
+                              candidate.ResetAt -
+                              clusters[^1].MinimumResetAt <= tolerance
+                    ? clusters[^1]
+                    : null;
+                if (cluster is null)
+                {
+                    cluster = new WeeklyResetCluster(candidate);
+                    clusters.Add(cluster);
+                }
+                else
+                {
+                    cluster.Add(candidate);
+                }
+
+                byResetTicks[candidate.ResetAt.UtcTicks] = cluster;
+            }
+
+            return new WeeklyResetClusterIndex(
+                clusters,
+                byResetTicks,
+                tolerance,
+                window);
+        }
+
+        public bool TryGetCluster(
+            DateTimeOffset resetAt,
+            out WeeklyResetCluster cluster) =>
+            _clustersByResetTicks.TryGetValue(
+                resetAt.UtcTicks,
+                out cluster!);
+
+        public bool TryGetPredecessor(
+            WeeklyResetCluster cluster,
+            out WeeklyResetCluster predecessor)
+        {
+            var expectedResetAt =
+                cluster.CanonicalResetAt - _window;
+            predecessor = _clusters
+                .Where(candidate =>
+                    !ReferenceEquals(candidate, cluster) &&
+                    candidate.MinimumResetAt <=
+                    expectedResetAt + _tolerance &&
+                    candidate.MaximumResetAt >=
+                    expectedResetAt - _tolerance)
+                .OrderByDescending(static cluster =>
+                    cluster.SupportCount)
+                .ThenByDescending(static cluster =>
+                    cluster.LastObservedAt)
+                .ThenBy(static cluster =>
+                    cluster.CanonicalResetAt)
+                .FirstOrDefault()!;
+            return predecessor is not null;
+        }
+    }
+
+    private sealed class WeeklyResetCluster
+    {
+        private WeeklyResetCandidate _canonicalCandidate;
+        private long _runnerUpSupportCount;
+
+        public WeeklyResetCluster(WeeklyResetCandidate candidate)
+        {
+            _canonicalCandidate = candidate;
+            MinimumResetAt = candidate.ResetAt;
+            MaximumResetAt = candidate.ResetAt;
+            FirstObservedAt = candidate.FirstObservedAt;
+            LastObservedAt = candidate.LastObservedAt;
+            SupportCount = candidate.SupportCount;
+        }
+
+        public DateTimeOffset MinimumResetAt { get; private set; }
+
+        public DateTimeOffset MaximumResetAt { get; private set; }
+
+        public DateTimeOffset CanonicalResetAt =>
+            _canonicalCandidate.ResetAt;
+
+        public DateTimeOffset FirstObservedAt { get; private set; }
+
+        public DateTimeOffset LastObservedAt { get; private set; }
+
+        public long SupportCount { get; private set; }
+
+        public bool IsCanonicalCandidateAmbiguous =>
+            _runnerUpSupportCount == _canonicalCandidate.SupportCount;
+
+        public TimeSpan ObservationSpan =>
+            LastObservedAt - FirstObservedAt;
+
+        public void Add(WeeklyResetCandidate candidate)
+        {
+            MinimumResetAt = candidate.ResetAt < MinimumResetAt
+                ? candidate.ResetAt
+                : MinimumResetAt;
+            MaximumResetAt = candidate.ResetAt > MaximumResetAt
+                ? candidate.ResetAt
+                : MaximumResetAt;
+            FirstObservedAt =
+                candidate.FirstObservedAt < FirstObservedAt
+                    ? candidate.FirstObservedAt
+                    : FirstObservedAt;
+            LastObservedAt =
+                candidate.LastObservedAt > LastObservedAt
+                    ? candidate.LastObservedAt
+                    : LastObservedAt;
+            SupportCount += candidate.SupportCount;
+
+            if (candidate.SupportCount >
+                _canonicalCandidate.SupportCount)
+            {
+                _runnerUpSupportCount = Math.Max(
+                    _runnerUpSupportCount,
+                    _canonicalCandidate.SupportCount);
+                _canonicalCandidate = candidate;
+            }
+            else
+            {
+                _runnerUpSupportCount = Math.Max(
+                    _runnerUpSupportCount,
+                    candidate.SupportCount);
+                if (candidate.SupportCount ==
+                    _canonicalCandidate.SupportCount &&
+                    candidate.LastObservedAt >
+                    _canonicalCandidate.LastObservedAt)
+                {
+                    _canonicalCandidate = candidate;
+                }
+            }
+        }
+    }
+
+    private sealed class WeeklyRateLimitEpochState(
+        double highWaterUsedPercent,
+        bool baselineKnown,
+        bool isAmbiguous)
+    {
+        public double HighWaterUsedPercent { get; set; } =
+            highWaterUsedPercent;
+
+        public bool BaselineKnown { get; set; } = baselineKnown;
+
+        public bool IsAmbiguous { get; } = isAmbiguous;
+
+        public DateTimeOffset? LastAcceptedTimestamp { get; set; }
+
+        public double? LastAcceptedUsedPercent { get; set; }
+    }
+
+    private sealed class WeeklyRateLimitTimelineState(
+        WeeklyResetCluster? cluster,
+        WeeklyRateLimitEpochState epoch)
+    {
+        public WeeklyResetCluster? Cluster { get; } = cluster;
+
+        public WeeklyRateLimitEpochState Epoch { get; } = epoch;
+
+        public Dictionary<DateOnly, DailyWeeklyRateLimitUsageBuilder> Days
+        {
+            get;
+        } = [];
+
+        public DailyWeeklyRateLimitUsageBuilder GetOrCreateDay(
+            DateOnly localDate)
+        {
+            if (!Days.TryGetValue(localDate, out var day))
+            {
+                day = new DailyWeeklyRateLimitUsageBuilder(
+                    localDate,
+                    isPartial: false);
+                Days.Add(localDate, day);
+            }
+
+            return day;
+        }
+    }
 
     private sealed class DailyWeeklyRateLimitUsageBuilder(
         DateOnly localDate,
         bool isPartial)
     {
         public DateOnly LocalDate { get; } = localDate;
+
+        public double? ConsumedPercentagePoints { get; set; }
 
         public double? ChangeFromPreviousDayPercentagePoints { get; set; }
 
@@ -1516,6 +2260,7 @@ public sealed class UsageRepository
 
         public DailyWeeklyRateLimitUsage ToSnapshot() => new(
             LocalDate,
+            ConsumedPercentagePoints,
             ChangeFromPreviousDayPercentagePoints,
             LastObservedUsedPercent,
             LastObservedAt,
@@ -1534,6 +2279,7 @@ public sealed class UsageRepository
         bool IsChild,
         TokenUsage? Previous,
         bool ReplayBoundarySeen,
+        long? FirstReplayBoundaryOffset,
         string CheckpointHash,
         bool IsArchived)
     {
@@ -1543,6 +2289,9 @@ public sealed class UsageRepository
             OwnSessionId,
             IsChild,
             Previous,
-            ReplayBoundarySeen);
+            ReplayBoundarySeen,
+            FirstReplayBoundaryOffset);
     }
+
+    private sealed record DailyUsageKey(string LocalDate, string RootTaskId);
 }

@@ -13,6 +13,8 @@ public sealed class LocalizationResourceContractTests
         "src/CodexUsageWidget/SettingsWindow.xaml";
     private const string AppSettingsPath =
         "src/CodexUsageWidget/Services/AppSettings.cs";
+    private const string SettingsServicePath =
+        "src/CodexUsageWidget/Services/SettingsService.cs";
 
     private static readonly string[] ProductionWindowPaths =
     [
@@ -273,6 +275,55 @@ public sealed class LocalizationResourceContractTests
             "GlassTransparencyPolicy.Normalize(",
             settings,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsService_MigratesLegacyGlassTransparencyOnlyOnce()
+    {
+        string settings = File.ReadAllText(
+            FindRepositoryFile(AppSettingsPath));
+        string service = File.ReadAllText(
+            FindRepositoryFile(SettingsServicePath));
+
+        Assert.Contains(
+            "GlassTransparencySemanticsVersion",
+            settings,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"glassTransparencySemanticsVersion\"",
+            service,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GlassTransparencyPolicy.MigrateLegacyPercent(",
+            service,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GlassTransparencyPolicy.CurrentSemanticsVersion",
+            service,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsWindow_ExposesDisplayOffMonitoringPauseContract()
+    {
+        string content = File.ReadAllText(
+            FindRepositoryFile(SettingsWindowPath));
+        string settings = File.ReadAllText(
+            FindRepositoryFile(AppSettingsPath));
+
+        Assert.Contains(
+            "AutomationProperties.AutomationId=" +
+            "\"PauseMonitoringWhenDisplayOffCheckBox\"",
+            content,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Loc.PauseMonitoringWhenDisplayOffDescription",
+            content,
+            StringComparison.Ordinal);
+        Assert.Matches(
+            @"public\s+bool\s+PauseMonitoringWhenDisplayOff\s*" +
+            @"\{\s*get;\s*set;\s*\}\s*=\s*true",
+            settings);
     }
 
     [Fact]

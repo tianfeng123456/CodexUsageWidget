@@ -139,6 +139,19 @@ internal static class TestLog
             ["payload"] = new Dictionary<string, object?>()
         });
 
+    public static string LargeReplayBoundaryWithLateType(
+        int payloadCharacters,
+        DateTimeOffset? timestamp = null) =>
+        Serialize(new Dictionary<string, object?>
+        {
+            ["timestamp"] = (timestamp ?? DateTimeOffset.UtcNow).ToString("O"),
+            ["payload"] = new Dictionary<string, object?>
+            {
+                ["padding"] = new string('x', payloadCharacters)
+            },
+            ["type"] = "inter_agent_communication_metadata"
+        });
+
     public static string IrrelevantHugeLine(int payloadBytes = 2 * 1024 * 1024) =>
         Serialize(new Dictionary<string, object?>
         {

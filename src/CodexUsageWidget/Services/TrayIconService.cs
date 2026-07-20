@@ -14,7 +14,10 @@ public sealed class TrayIconService : IDisposable
     private readonly Action<bool> changeStartup;
     private Icon? usageIcon;
     private double? remainingPercent;
-    private bool useLightTheme;
+    private bool useLightShellTheme;
+    private HollowLineIconRenderer.VisualStatus renderedStatus;
+    private bool renderedWithLightShellTheme;
+    private bool hasRenderedIcon;
     private bool windowVisible = true;
     private bool synchronizingStartup;
     private bool disposed;
@@ -28,7 +31,8 @@ public sealed class TrayIconService : IDisposable
         bool useLightTheme)
     {
         this.changeStartup = changeStartup;
-        this.useLightTheme = useLightTheme;
+        useLightShellTheme =
+            ThemeService.IsSystemShellLightTheme(useLightTheme);
         showItem = new ToolStripMenuItem(
             LocalizationService.Instance.Get("Loc.TrayShowHide"),
             null,
@@ -156,22 +160,41 @@ public sealed class TrayIconService : IDisposable
 
     public void ApplyTheme(bool useLightTheme)
     {
-        if (disposed || this.useLightTheme == useLightTheme)
+        if (disposed)
         {
             return;
         }
 
-        this.useLightTheme = useLightTheme;
+        var nextShellTheme =
+            ThemeService.IsSystemShellLightTheme(useLightTheme);
+        if (useLightShellTheme == nextShellTheme)
+        {
+            return;
+        }
+
+        useLightShellTheme = nextShellTheme;
         ReplaceIcon();
     }
 
     private void ReplaceIcon()
     {
+        var nextStatus =
+            HollowLineIconRenderer.GetVisualStatus(remainingPercent);
+        if (hasRenderedIcon &&
+            renderedStatus == nextStatus &&
+            renderedWithLightShellTheme == useLightShellTheme)
+        {
+            return;
+        }
+
         var nextIcon = HollowLineIconRenderer.CreateTrayIcon(
             remainingPercent,
-            useLightTheme);
+            useLightShellTheme);
         var previousIcon = usageIcon;
         usageIcon = nextIcon;
+        renderedStatus = nextStatus;
+        renderedWithLightShellTheme = useLightShellTheme;
+        hasRenderedIcon = true;
         notifyIcon.Icon = nextIcon;
         previousIcon?.Dispose();
     }

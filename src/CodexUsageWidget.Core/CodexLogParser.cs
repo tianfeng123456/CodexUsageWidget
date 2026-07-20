@@ -21,8 +21,10 @@ public sealed class CodexLogParser
         var isChild = state.IsChildSession;
         var previous = state.PreviousCumulative;
         var replayBoundarySeen = state.ReplayBoundarySeen;
+        var firstReplayBoundaryOffset = state.FirstReplayBoundaryOffset;
         var nextOffset = state.Offset;
         var malformed = 0;
+        var truncatedLineSeen = false;
         var deltas = new List<TokenUsageDelta>();
         var rateLimits = new List<RateLimitSnapshotAtOffset>();
 
@@ -40,6 +42,7 @@ public sealed class CodexLogParser
                            cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            truncatedLineSeen |= line.WasTruncated;
 
             if (line.Bytes.Length == 0)
             {
@@ -60,6 +63,7 @@ public sealed class CodexLogParser
                         "inter_agent_communication_metadata",
                         StringComparison.Ordinal))
                 {
+                    firstReplayBoundaryOffset ??= line.StartOffset;
                     replayBoundarySeen = true;
                     nextOffset = line.EndOffset;
                     continue;
@@ -165,6 +169,37 @@ public sealed class CodexLogParser
             }
         }
 
+        if (isChild &&
+            firstReplayBoundaryOffset is null &&
+            truncatedLineSeen)
+        {
+            // The normal parser deliberately caps irrelevant JSONL rows at
+            // 64 KiB. A future marker may carry a larger metadata payload, or
+            // place its top-level type after that payload. Retry only this
+            // exceptional child-file case with a bounded larger line buffer.
+            firstReplayBoundaryOffset =
+                await FindFirstReplayBoundaryOffsetAsync(
+                    path,
+                    cancellationToken);
+            replayBoundarySeen |= firstReplayBoundaryOffset is not null;
+        }
+
+        IReadOnlyList<TokenUsageDelta> acceptedDeltas = deltas;
+        IReadOnlyList<RateLimitSnapshotAtOffset> acceptedRateLimits = rateLimits;
+        if (isChild && firstReplayBoundaryOffset is long replayCutoff)
+        {
+            // A child rollout starts with a byte-for-byte replay of its root
+            // task. The first trigger-turn marker ends that copied prefix.
+            // Later markers start additional genuine child turns and must not
+            // discard the usage between them.
+            acceptedDeltas = deltas
+                .Where(delta => delta.EventOffset > replayCutoff)
+                .ToArray();
+            acceptedRateLimits = rateLimits
+                .Where(rateLimit => rateLimit.EventOffset > replayCutoff)
+                .ToArray();
+        }
+
         return new LogParseResult(
             new LogParseCheckpoint(
                 nextOffset,
@@ -172,10 +207,56 @@ public sealed class CodexLogParser
                 ownSessionId,
                 isChild,
                 previous,
-                replayBoundarySeen),
-            deltas,
-            rateLimits,
+                replayBoundarySeen,
+                firstReplayBoundaryOffset),
+            acceptedDeltas,
+            acceptedRateLimits,
             malformed);
+    }
+
+    /// <summary>
+    /// Finds the first child trigger-turn marker as a top-level JSONL envelope.
+    /// Text that merely mentions the marker inside a response body or source
+    /// snippet is intentionally ignored.
+    /// </summary>
+    public async Task<long?> FindFirstReplayBoundaryOffsetAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        await using var stream = SharedFileAccess.OpenRead(path);
+        await foreach (var line in ReadLinesAsync(
+                           stream,
+                           0,
+                           1024 * 1024,
+                           cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (line.Bytes.Length == 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (TryReadEnvelope(line, out var envelope) &&
+                    string.Equals(
+                        envelope.OuterType,
+                        "inter_agent_communication_metadata",
+                        StringComparison.Ordinal))
+                {
+                    return line.StartOffset;
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed JSONL rows and continue to the first valid
+                // top-level trigger marker.
+            }
+        }
+
+        return null;
     }
 
     public async Task<IReadOnlyList<SessionTitleEntry>> ParseSessionIndexAsync(

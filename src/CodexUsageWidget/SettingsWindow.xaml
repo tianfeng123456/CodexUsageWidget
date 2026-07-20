@@ -553,6 +553,11 @@
                                       Content="{DynamicResource Loc.CollapseImmediately}" />
                             <CheckBox x:Name="StartupCheckBox"
                                       Content="{DynamicResource Loc.StartWithWindows}" />
+                            <CheckBox x:Name="PauseMonitoringWhenDisplayOffCheckBox"
+                                      AutomationProperties.AutomationId="PauseMonitoringWhenDisplayOffCheckBox"
+                                      AutomationProperties.Name="{DynamicResource Loc.PauseMonitoringWhenDisplayOff}"
+                                      Content="{DynamicResource Loc.PauseMonitoringWhenDisplayOff}"
+                                      ToolTip="{DynamicResource Loc.PauseMonitoringWhenDisplayOffDescription}" />
                         </StackPanel>
                     </Border>
 

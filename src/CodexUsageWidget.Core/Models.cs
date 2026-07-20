@@ -110,14 +110,19 @@ public sealed record RateLimitSnapshot(
 }
 
 /// <summary>
-/// Captures the final directly observed Codex weekly allowance value for one
-/// local calendar date.
+/// Captures directly observed Codex weekly allowance activity for one local
+/// calendar date.
 /// </summary>
 /// <param name="LocalDate">Calendar date in the application's configured time zone.</param>
+/// <param name="ConsumedPercentagePoints">
+/// Increase in the weekly used percentage attributed to this date. The value is
+/// built from monotonic high-water marks inside each server reset window so
+/// stale concurrent snapshots and reset drops are not counted as usage.
+/// </param>
 /// <param name="ChangeFromPreviousDayPercentagePoints">
-/// Difference between this date's final observation and the immediately
-/// preceding calendar date's final observation. Null when either date has no
-/// observation. A reset can therefore produce a negative value.
+/// Difference between this date's consumed percentage points and the
+/// immediately preceding calendar date's consumed percentage points. Null when
+/// either date has no observation.
 /// </param>
 /// <param name="LastObservedUsedPercent">
 /// Last accepted cumulative weekly used percentage observed on this date, or
@@ -132,10 +137,11 @@ public sealed record RateLimitSnapshot(
 /// </param>
 /// <param name="IsPartial">
 /// True when the requested interval covers only part of the date, the date has
-/// no observation.
+/// no observation, or the first observed reset window has no earlier baseline.
 /// </param>
 public sealed record DailyWeeklyRateLimitUsage(
     DateOnly LocalDate,
+    double? ConsumedPercentagePoints,
     double? ChangeFromPreviousDayPercentagePoints,
     double? LastObservedUsedPercent,
     DateTimeOffset? LastObservedAt,
@@ -172,10 +178,11 @@ public sealed record LogParseCheckpoint(
     string? OwnSessionId,
     bool IsChildSession,
     TokenUsage? PreviousCumulative,
-    bool ReplayBoundarySeen)
+    bool ReplayBoundarySeen,
+    long? FirstReplayBoundaryOffset = null)
 {
     public static LogParseCheckpoint Empty { get; } =
-        new(0, null, null, false, null, false);
+        new(0, null, null, false, null, false, null);
 }
 
 public sealed record LogParseResult(
