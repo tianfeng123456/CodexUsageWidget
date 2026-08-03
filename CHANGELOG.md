@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-03
+
 ### 修复 / Fixed
 
 - 修复原生 SQLite 传递依赖命中高危安全公告的问题；显式固定到包含 SQLite

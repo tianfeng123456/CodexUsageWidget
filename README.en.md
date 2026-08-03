@@ -2,6 +2,11 @@
 
 # Codex Usage Widget
 
+[![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
+
+Current stable release: **v1.2.0**. Read this page in English or switch to the
+[Chinese README](README.md).
+
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota
 and per-task token usage. It is built with WPF, .NET 8, SQLite, and MVVM, and
 is published as a self-contained, single-file Windows x64 executable. Users do
