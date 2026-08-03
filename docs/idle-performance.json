@@ -1,12 +1,12 @@
 {
     "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
-    "sha256":  "DD99C1A2179626C03ABF082A371D96C6A478B25DF64B6212786253D2CD37A2F4",
+    "sha256":  "1211FA8FC6B8E316E94C537D5BFFD1922C885241B67AC36E48DCEE2FC390FFB7",
     "executableBytes":  164493889,
-    "startedAt":  "2026-08-02T12:31:29.0514038+08:00",
-    "completedAt":  "2026-08-02T12:32:34.7430975+08:00",
+    "startedAt":  "2026-08-03T19:13:10.7219460+08:00",
+    "completedAt":  "2026-08-03T19:14:16.4156952+08:00",
     "warmupSeconds":  12,
     "indexStabilitySeconds":  5,
-    "observationSeconds":  65.018,
+    "observationSeconds":  65.013,
     "primeWeeklyQuotaOverlay":  false,
     "primeFromPinnedStartup":  false,
     "collapsedMode":  "Circle",
@@ -33,11 +33,11 @@
                                       "path":  "C:\\Users\\13720\\AppData\\Local\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-shm",
                                       "before":  {
                                                      "length":  32768,
-                                                     "lastWriteTimeUtc":  "2026-08-02T04:30:34.8611312Z"
+                                                     "lastWriteTimeUtc":  "2026-08-03T11:12:03.4643294Z"
                                                  },
                                       "after":  {
                                                     "length":  32768,
-                                                    "lastWriteTimeUtc":  "2026-08-02T04:31:12.7104529Z"
+                                                    "lastWriteTimeUtc":  "2026-08-03T11:12:54.5158311Z"
                                                 }
                                   }
                               ],
@@ -45,13 +45,13 @@
 
                                  ],
     "processorCount":  16,
-    "cpuDeltaSeconds":  0.046875,
-    "singleCoreCpuPercent":  0.0721,
-    "wholeMachineCpuPercent":  0.0045,
-    "privateMemoryBytes":  81551360,
-    "workingSetBytes":  172126208,
-    "peakPrivateMemoryBytes":  84054016,
-    "peakWorkingSetBytes":  174764032,
+    "cpuDeltaSeconds":  0.015625,
+    "singleCoreCpuPercent":  0.024,
+    "wholeMachineCpuPercent":  0.0015,
+    "privateMemoryBytes":  81842176,
+    "workingSetBytes":  173805568,
+    "peakPrivateMemoryBytes":  81969152,
+    "peakWorkingSetBytes":  173879296,
     "databaseFileCount":  3,
     "databaseChanges":  [
 

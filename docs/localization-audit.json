@@ -1,9 +1,9 @@
 {
-    "capturedAt":  "2026-07-19T22:53:31.1488397+08:00",
+    "capturedAt":  "2026-08-03T19:10:49.0037243+08:00",
     "status":  "PASS",
-    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
-    "executableSha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
-    "executableBytes":  164086767,
+    "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
+    "executableSha256":  "1211FA8FC6B8E316E94C537D5BFFD1922C885241B67AC36E48DCEE2FC390FFB7",
+    "executableBytes":  164493889,
     "selectors":  {
                       "settingsButton":  "SettingsButton",
                       "themeModeComboBox":  "ThemeModeComboBox",

@@ -1,9 +1,9 @@
-﻿{
-    "capturedAt":  "2026-08-01T19:14:24.1471748+08:00",
+{
+    "capturedAt":  "2026-08-03T19:36:58.2296684+08:00",
     "status":  "PASS",
     "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
-    "executableSha256":  "5B0B9517A5C1105A7ECE8452030EA54B3611DAD859B98B2A1B8FE21C2A458180",
-    "executableBytes":  164144623,
+    "executableSha256":  "1211FA8FC6B8E316E94C537D5BFFD1922C885241B67AC36E48DCEE2FC390FFB7",
+    "executableBytes":  164493889,
     "expectedExpandedLogicalWidth":  420,
     "expectedExpandedLogicalHeight":  540,
     "sampleIntervalMilliseconds":  10,
@@ -24,10 +24,10 @@
                        "recollapsedLogicalWidth":  32,
                        "recollapsedLogicalHeight":  32,
                        "dpi":  192,
-                       "hoverToExpandedMilliseconds":  243,
+                       "hoverToExpandedMilliseconds":  244,
                        "observedTopLevelSizes":  [
                                                      {
-                                                         "elapsedMilliseconds":  236,
+                                                         "elapsedMilliseconds":  239,
                                                          "logicalWidth":  420,
                                                          "logicalHeight":  540
                                                      }
@@ -51,10 +51,10 @@
                        "recollapsedLogicalWidth":  80,
                        "recollapsedLogicalHeight":  80,
                        "dpi":  192,
-                       "hoverToExpandedMilliseconds":  189,
+                       "hoverToExpandedMilliseconds":  195,
                        "observedTopLevelSizes":  [
                                                      {
-                                                         "elapsedMilliseconds":  188,
+                                                         "elapsedMilliseconds":  194,
                                                          "logicalWidth":  420,
                                                          "logicalHeight":  540
                                                      }
@@ -78,10 +78,10 @@
                        "recollapsedLogicalWidth":  208,
                        "recollapsedLogicalHeight":  80,
                        "dpi":  192,
-                       "hoverToExpandedMilliseconds":  195,
+                       "hoverToExpandedMilliseconds":  188,
                        "observedTopLevelSizes":  [
                                                      {
-                                                         "elapsedMilliseconds":  194,
+                                                         "elapsedMilliseconds":  188,
                                                          "logicalWidth":  420,
                                                          "logicalHeight":  540
                                                      }

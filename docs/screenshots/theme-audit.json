@@ -1,8 +1,8 @@
 {
-    "capturedAt":  "2026-07-19T22:51:57.8672339+08:00",
-    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
-    "sha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
-    "executableBytes":  164086767,
+    "capturedAt":  "2026-08-03T19:37:45.9740348+08:00",
+    "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
+    "sha256":  "1211FA8FC6B8E316E94C537D5BFFD1922C885241B67AC36E48DCEE2FC390FFB7",
+    "executableBytes":  164493889,
     "appsUseLightTheme":  1,
     "baselineCollapsedMode":  "Circle",
     "glassTransparencyPercent":  -1,
@@ -18,44 +18,44 @@
                        "collapsedLogicalWidth":  80,
                        "collapsedLogicalHeight":  80,
                        "collapsedDpi":  192,
-                       "collapsedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-system-collapsed.png",
-                       "collapsedImageBytes":  9792,
-                       "screenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-system.png",
-                       "imageBytes":  134193,
-                       "overlayScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-system-overlay.png",
-                       "overlayImageBytes":  129144,
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-system-collapsed.png",
+                       "collapsedImageBytes":  9788,
+                       "screenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-system.png",
+                       "imageBytes":  133984,
+                       "overlayScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-system-overlay.png",
+                       "overlayImageBytes":  123090,
                        "overlayTriggerAutomationId":  "WeeklyQuotaTrendButton",
                        "overlayAutomationId":  "WeeklyQuotaOverlay",
                        "overlayVisible":  true,
                        "weeklyQuotaDayCount":  7,
                        "weeklyQuotaDays":  [
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260713",
-                                                   "name":  "7月13日 周已用 12% 较前日 — · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260728",
+                                                   "name":  "7月28日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260714",
-                                                   "name":  "7月14日 周已用 18% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260729",
+                                                   "name":  "7月29日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260715",
-                                                   "name":  "7月15日 周已用 23% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260730",
+                                                   "name":  "7月30日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260716",
-                                                   "name":  "7月16日 周已用 29% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260731",
+                                                   "name":  "7月31日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260717",
-                                                   "name":  "7月17日 周已用 34% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260801",
+                                                   "name":  "8月1日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260718",
-                                                   "name":  "7月18日 周已用 40% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260802",
+                                                   "name":  "8月2日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260719",
-                                                   "name":  "7月19日 周已用 46% 较前日 +6 个百分点 · 最后观测 22:43"
+                                                   "automationId":  "WeeklyQuotaDay_20260803",
+                                                   "name":  "8月3日 当日消耗 46% 较前日 — · 周已用 46% · 最后观测 19:24"
                                                }
                                            ],
                        "topLevelHwndCountBefore":  1,
@@ -72,44 +72,44 @@
                        "collapsedLogicalWidth":  80,
                        "collapsedLogicalHeight":  80,
                        "collapsedDpi":  192,
-                       "collapsedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-light-collapsed.png",
-                       "collapsedImageBytes":  9794,
-                       "screenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-light.png",
-                       "imageBytes":  134193,
-                       "overlayScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-light-overlay.png",
-                       "overlayImageBytes":  129144,
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-light-collapsed.png",
+                       "collapsedImageBytes":  9789,
+                       "screenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-light.png",
+                       "imageBytes":  133975,
+                       "overlayScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-light-overlay.png",
+                       "overlayImageBytes":  123090,
                        "overlayTriggerAutomationId":  "WeeklyQuotaTrendButton",
                        "overlayAutomationId":  "WeeklyQuotaOverlay",
                        "overlayVisible":  true,
                        "weeklyQuotaDayCount":  7,
                        "weeklyQuotaDays":  [
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260713",
-                                                   "name":  "7月13日 周已用 12% 较前日 — · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260728",
+                                                   "name":  "7月28日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260714",
-                                                   "name":  "7月14日 周已用 18% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260729",
+                                                   "name":  "7月29日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260715",
-                                                   "name":  "7月15日 周已用 23% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260730",
+                                                   "name":  "7月30日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260716",
-                                                   "name":  "7月16日 周已用 29% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260731",
+                                                   "name":  "7月31日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260717",
-                                                   "name":  "7月17日 周已用 34% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260801",
+                                                   "name":  "8月1日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260718",
-                                                   "name":  "7月18日 周已用 40% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260802",
+                                                   "name":  "8月2日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260719",
-                                                   "name":  "7月19日 周已用 46% 较前日 +6 个百分点 · 最后观测 22:43"
+                                                   "automationId":  "WeeklyQuotaDay_20260803",
+                                                   "name":  "8月3日 当日消耗 46% 较前日 — · 周已用 46% · 最后观测 19:24"
                                                }
                                            ],
                        "topLevelHwndCountBefore":  1,
@@ -126,44 +126,44 @@
                        "collapsedLogicalWidth":  80,
                        "collapsedLogicalHeight":  80,
                        "collapsedDpi":  192,
-                       "collapsedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-dark-collapsed.png",
-                       "collapsedImageBytes":  9707,
-                       "screenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-dark.png",
-                       "imageBytes":  113601,
-                       "overlayScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\theme-dark-overlay.png",
-                       "overlayImageBytes":  108129,
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-dark-collapsed.png",
+                       "collapsedImageBytes":  9706,
+                       "screenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-dark.png",
+                       "imageBytes":  113339,
+                       "overlayScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\theme-dark-overlay.png",
+                       "overlayImageBytes":  103133,
                        "overlayTriggerAutomationId":  "WeeklyQuotaTrendButton",
                        "overlayAutomationId":  "WeeklyQuotaOverlay",
                        "overlayVisible":  true,
                        "weeklyQuotaDayCount":  7,
                        "weeklyQuotaDays":  [
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260713",
-                                                   "name":  "7月13日 周已用 12% 较前日 — · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260728",
+                                                   "name":  "7月28日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260714",
-                                                   "name":  "7月14日 周已用 18% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260729",
+                                                   "name":  "7月29日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260715",
-                                                   "name":  "7月15日 周已用 23% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260730",
+                                                   "name":  "7月30日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260716",
-                                                   "name":  "7月16日 周已用 29% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260731",
+                                                   "name":  "7月31日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260717",
-                                                   "name":  "7月17日 周已用 34% 较前日 +5 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260801",
+                                                   "name":  "8月1日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260718",
-                                                   "name":  "7月18日 周已用 40% 较前日 +6 个百分点 · 最后观测 22:40"
+                                                   "automationId":  "WeeklyQuotaDay_20260802",
+                                                   "name":  "8月2日 无周额度观测"
                                                },
                                                {
-                                                   "automationId":  "WeeklyQuotaDay_20260719",
-                                                   "name":  "7月19日 周已用 46% 较前日 +6 个百分点 · 最后观测 22:43"
+                                                   "automationId":  "WeeklyQuotaDay_20260803",
+                                                   "name":  "8月3日 当日消耗 46% 较前日 — · 周已用 46% · 最后观测 19:24"
                                                }
                                            ],
                        "topLevelHwndCountBefore":  1,

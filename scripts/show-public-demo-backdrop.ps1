@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$ReadyFile
+    [string]$ReadyFile,
+    [switch]$Topmost
 )
 
 Set-StrictMode -Version 2.0
@@ -15,7 +16,7 @@ $window.WindowStyle = [Windows.WindowStyle]::None
 $window.ResizeMode = [Windows.ResizeMode]::NoResize
 $window.WindowState = [Windows.WindowState]::Maximized
 $window.ShowInTaskbar = $false
-$window.Topmost = $false
+$window.Topmost = $Topmost.IsPresent
 $window.Focusable = $false
 
 $brush = [Windows.Media.LinearGradientBrush]::new()

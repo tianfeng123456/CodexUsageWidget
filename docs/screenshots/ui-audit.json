@@ -1,13 +1,139 @@
 {
-  "result": "INVALID_ENVIRONMENT",
-  "startedAt": "2026-08-02T01:34:27.3178908+08:00",
-  "completedAt": "2026-08-02T01:34:38.0448935+08:00",
-  "executable": "dist\\CodexUsageWidget.exe",
-  "executableBytes": 164172271,
-  "sha256": "7CA59A6DBCC60AFCD6719CCE17A024A821ECBE13828FD206711BD181A3674C38",
-  "reason": "The Windows session was showing LockApp, so pointer events were not delivered to the widget.",
-  "settingsRestored": true,
-  "widgetProcessesAfterAudit": 0,
-  "requiresUnlockedRetry": true,
-  "productFailure": false
+    "result":  "PASS",
+    "startedAt":  "2026-08-03T19:35:58.9440485+08:00",
+    "completedAt":  "2026-08-03T19:36:24.7393577+08:00",
+    "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
+    "executableBytes":  164493889,
+    "sha256":  "1211FA8FC6B8E316E94C537D5BFFD1922C885241B67AC36E48DCEE2FC390FFB7",
+    "processId":  28504,
+    "processStartedByAudit":  true,
+    "processLeftRunning":  false,
+    "baselineCollapsedMode":  "Circle",
+    "originalSettingsRestored":  true,
+    "display":  {
+                    "virtualLeft":  0,
+                    "virtualTop":  0,
+                    "virtualWidth":  3200,
+                    "virtualHeight":  2000
+                },
+    "counts":  {
+                   "pass":  16,
+                   "fail":  0,
+                   "skip":  0
+               },
+    "results":  [
+                    {
+                        "name":  "executable-and-process",
+                        "status":  "PASS",
+                        "detail":  "started PID 28504",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "main-window-discovery",
+                        "status":  "PASS",
+                        "detail":  "HWND=0xA09AA; 80x80 logical px (160x160 physical px, 192 DPI)",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "display-and-dpi",
+                        "status":  "PASS",
+                        "detail":  "virtual screen=3200x2000 at (0,0); widget DPI=192; calibrated for 1600x1000 at 96 DPI and scaled per monitor",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "collapsed-80x80",
+                        "status":  "PASS",
+                        "detail":  "80x80 logical px (160x160 physical px, 192 DPI); screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\collapsed.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "hover-expanded-420x540",
+                        "status":  "PASS",
+                        "detail":  "420x540 logical px (840x1080 physical px, 192 DPI); screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "tab-today",
+                        "status":  "PASS",
+                        "detail":  "selected; accent scores=18,0,0,0; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-today.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "tab-last-7-days",
+                        "status":  "PASS",
+                        "detail":  "selected; accent scores=0,18,0,0; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-last-7-days.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "tab-current-month",
+                        "status":  "PASS",
+                        "detail":  "selected; accent scores=0,0,18,0; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-current-month.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "tab-all-time",
+                        "status":  "PASS",
+                        "detail":  "selected; accent scores=0,0,0,18; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-all-time.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "weekly-quota-overlay",
+                        "status":  "PASS",
+                        "detail":  "opened and closed inside the 420x540 HWND; seven daily observations exposed to UI Automation; real day hover remained alive; scrim brightness 208-\u003e110-\u003e208; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\weekly-quota-overlay.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "pin-holds-expanded",
+                        "status":  "PASS",
+                        "detail":  "remained expanded for 5500 ms; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\pinned-expanded.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "drag-changes-position",
+                        "status":  "PASS",
+                        "detail":  "position changed from (960,360) to (1140,470), 105.5 logical px; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\dragged-expanded.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "unpin-auto-collapses",
+                        "status":  "PASS",
+                        "detail":  "collapsed after 62 ms; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\unpinned-collapsed.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "edge-expansion-restores-anchor",
+                        "status":  "PASS",
+                        "detail":  "edge anchor=(3040,470); expanded panel stayed inside work area; restored within 6 physical px; screenshots=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-collapsed.png, C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-expanded-contained.png, C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-anchor-restored.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "settings-open-close",
+                        "status":  "PASS",
+                        "detail":  "opened at 460x590 logical px (920x1180 physical px, 192 DPI), theme/transparency/language selectors verified, closed successfully; screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\settings.png",
+                        "evidence":  ""
+                    },
+                    {
+                        "name":  "final-collapsed-state",
+                        "status":  "PASS",
+                        "detail":  "80x80 logical px (160x160 physical px, 192 DPI); screenshot=C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\final-collapsed.png",
+                        "evidence":  ""
+                    }
+                ],
+    "screenshots":  {
+                        "collapsed":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\collapsed.png",
+                        "expanded":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded.png",
+                        "expanded-today":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-today.png",
+                        "expanded-last-7-days":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-last-7-days.png",
+                        "expanded-current-month":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-current-month.png",
+                        "expanded-all-time":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\expanded-all-time.png",
+                        "weekly-quota-overlay":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\weekly-quota-overlay.png",
+                        "pinned-expanded":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\pinned-expanded.png",
+                        "dragged-expanded":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\dragged-expanded.png",
+                        "unpinned-collapsed":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\unpinned-collapsed.png",
+                        "edge-collapsed":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-collapsed.png",
+                        "edge-expanded-contained":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-expanded-contained.png",
+                        "edge-anchor-restored":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\edge-anchor-restored.png",
+                        "settings":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\settings.png",
+                        "final-collapsed":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\final-collapsed.png"
+                    }
 }
