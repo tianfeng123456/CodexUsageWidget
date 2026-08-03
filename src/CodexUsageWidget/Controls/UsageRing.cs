@@ -75,6 +75,24 @@ public sealed class UsageRing : FrameworkElement
         typeof(UsageRing),
         new FrameworkPropertyMetadata(20d, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty ShowTextProperty = DependencyProperty.Register(
+        nameof(ShowText),
+        typeof(bool),
+        typeof(UsageRing),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty ShowProgressDotProperty = DependencyProperty.Register(
+        nameof(ShowProgressDot),
+        typeof(bool),
+        typeof(UsageRing),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty GlowThicknessProperty = DependencyProperty.Register(
+        nameof(GlowThickness),
+        typeof(double),
+        typeof(UsageRing),
+        new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public double? Percentage
     {
         get => (double?)GetValue(PercentageProperty);
@@ -129,6 +147,24 @@ public sealed class UsageRing : FrameworkElement
         set => SetValue(FontSizeProperty, value);
     }
 
+    public bool ShowText
+    {
+        get => (bool)GetValue(ShowTextProperty);
+        set => SetValue(ShowTextProperty, value);
+    }
+
+    public bool ShowProgressDot
+    {
+        get => (bool)GetValue(ShowProgressDotProperty);
+        set => SetValue(ShowProgressDotProperty, value);
+    }
+
+    public double GlowThickness
+    {
+        get => (double)GetValue(GlowThicknessProperty);
+        set => SetValue(GlowThicknessProperty, value);
+    }
+
     protected override AutomationPeer OnCreateAutomationPeer() =>
         new FrameworkElementAutomationPeer(this);
 
@@ -137,7 +173,12 @@ public sealed class UsageRing : FrameworkElement
         base.OnRender(drawingContext);
 
         var thickness = Math.Max(1, StrokeThickness);
-        var radius = Math.Max(0, Math.Min(ActualWidth, ActualHeight) / 2 - thickness / 2 - 1);
+        var glowThickness = Math.Max(0d, GlowThickness);
+        var radius = Math.Max(
+            0,
+            Math.Min(ActualWidth, ActualHeight) / 2 -
+            (thickness + glowThickness) / 2 -
+            1);
         var center = new Point(ActualWidth / 2, ActualHeight / 2);
         var heartbeatPoints = CreateHeartbeatPoints(center, radius);
         var ringGeometry = CreateRingGeometry(center, radius, heartbeatPoints);
@@ -149,6 +190,21 @@ public sealed class UsageRing : FrameworkElement
         {
             var percentage = Math.Clamp(rawPercentage, 0, 100);
             var progressBrush = GetProgressBrush(percentage);
+
+            if (glowThickness > 0d)
+            {
+                drawingContext.PushOpacity(0.22d);
+                _ = DrawProgress(
+                    drawingContext,
+                    center,
+                    radius,
+                    heartbeatPoints,
+                    ringGeometry,
+                    CreatePen(progressBrush, thickness + glowThickness),
+                    percentage);
+                drawingContext.Pop();
+            }
+
             var progressPen = CreatePen(progressBrush, thickness);
             var progressEnd = DrawProgress(
                 drawingContext,
@@ -159,7 +215,7 @@ public sealed class UsageRing : FrameworkElement
                 progressPen,
                 percentage);
 
-            if (progressEnd is { } statusPoint)
+            if (ShowProgressDot && progressEnd is { } statusPoint)
             {
                 var dotRadius = Math.Max(1.8d, thickness * 0.78d);
                 drawingContext.DrawEllipse(
@@ -171,7 +227,10 @@ public sealed class UsageRing : FrameworkElement
             }
         }
 
-        DrawCenteredText(drawingContext, center);
+        if (ShowText)
+        {
+            DrawCenteredText(drawingContext, center);
+        }
     }
 
     private void DrawCenteredText(DrawingContext drawingContext, Point center)

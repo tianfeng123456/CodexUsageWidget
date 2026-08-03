@@ -1,51 +1,54 @@
+using System.Diagnostics.CodeAnalysis;
+using CodexUsageWidget.Core;
+
 namespace CodexUsageWidget.Services;
 
 public sealed class SingleInstanceGuard : IDisposable
 {
-    private readonly Mutex mutex;
-    private bool disposed;
+    private const string MutexName =
+        @"Local\CodexUsageWidget.SingleInstance";
+    private const string ActivationEventName =
+        @"Local\CodexUsageWidget.ActivateExisting";
 
-    private SingleInstanceGuard(Mutex mutex)
+    private readonly NamedSingleInstanceCoordinator coordinator;
+
+    private SingleInstanceGuard(
+        NamedSingleInstanceCoordinator coordinator)
     {
-        this.mutex = mutex;
+        this.coordinator = coordinator;
     }
 
-    public static bool TryAcquire(out SingleInstanceGuard? guard)
+    public event EventHandler? ActivationRequested
     {
-        var mutex = new Mutex(
-            initiallyOwned: true,
-            name: @"Local\CodexUsageWidget.SingleInstance",
-            createdNew: out var createdNew);
-        if (!createdNew)
+        add => coordinator.ActivationRequested += value;
+        remove => coordinator.ActivationRequested -= value;
+    }
+
+    public static bool TryAcquire(
+        [NotNullWhen(true)] out SingleInstanceGuard? guard,
+        out bool activationSignaled)
+    {
+        if (!NamedSingleInstanceCoordinator.TryAcquire(
+                MutexName,
+                ActivationEventName,
+                out var coordinator,
+                out activationSignaled))
         {
-            mutex.Dispose();
             guard = null;
             return false;
         }
 
-        guard = new SingleInstanceGuard(mutex);
+        guard = new SingleInstanceGuard(coordinator);
         return true;
+    }
+
+    public void StartListening()
+    {
+        coordinator.StartListening();
     }
 
     public void Dispose()
     {
-        if (disposed)
-        {
-            return;
-        }
-
-        disposed = true;
-        try
-        {
-            mutex.ReleaseMutex();
-        }
-        catch (ApplicationException)
-        {
-            // The OS will release ownership when the process exits.
-        }
-        finally
-        {
-            mutex.Dispose();
-        }
+        coordinator.Dispose();
     }
 }

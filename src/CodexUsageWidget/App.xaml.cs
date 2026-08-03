@@ -9,6 +9,10 @@ using Microsoft.Win32;
 
 namespace CodexUsageWidget;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "WPF owns the Application lifetime. OnExit and the explicit shutdown path dispose native and asynchronous components; the two process-lifetime gates intentionally remain valid for late finally blocks.")]
 public partial class App : System.Windows.Application
 {
     private readonly CancellationTokenSource lifetime = new();
@@ -32,30 +36,59 @@ public partial class App : System.Windows.Application
     private bool displayOff;
     private bool sessionLocked;
     private bool systemSuspended;
+    private bool activationRequestedBeforeReady;
+    private bool diagnosticsSubscribed;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        SubscribeDiagnostics();
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         LocalizationService.Instance.Apply(AppLanguageMode.System);
 
-        if (!SingleInstanceGuard.TryAcquire(out singleInstance))
+        try
         {
+            if (!SingleInstanceGuard.TryAcquire(
+                    out singleInstance,
+                    out var activationSignaled))
+            {
+                if (!activationSignaled)
+                {
+                    System.Windows.MessageBox.Show(
+                        LocalizationService.Instance.Get("Loc.AppAlreadyRunning"),
+                        LocalizationService.Instance.Get("Loc.AppName"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                // No window, tray icon, index, or settings writer exists yet.
+                // WPF can otherwise enter a headless message loop when Shutdown
+                // is requested before startup completes, so terminate only this
+                // duplicate process deterministically after the notice closes.
+                Environment.Exit(0);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            LogDiagnostic("single-instance-startup", exception);
             System.Windows.MessageBox.Show(
-                LocalizationService.Instance.Get("Loc.AppAlreadyRunning"),
+                LocalizationService.Instance.Format(
+                    "Loc.StartupFailedFormat",
+                    exception.Message),
                 LocalizationService.Instance.Get("Loc.AppName"),
                 MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            // No window, tray icon, index, or settings writer exists yet.
-            // WPF can otherwise enter a headless message loop when Shutdown
-            // is requested before startup completes, so terminate only this
-            // duplicate process deterministically after the notice closes.
-            Environment.Exit(0);
+                MessageBoxImage.Error);
+            Environment.Exit(1);
             return;
         }
 
         try
         {
+            singleInstance.ActivationRequested +=
+                SingleInstanceOnActivationRequested;
+            singleInstance.StartListening();
+
             settingsService = new SettingsService();
             startupRegistration = new StartupRegistrationService();
             settings = await settingsService.LoadAsync(lifetime.Token);
@@ -113,6 +146,12 @@ public partial class App : System.Windows.Application
                 mainWindow.Collapse(force: true);
             }
 
+            if (activationRequestedBeforeReady)
+            {
+                activationRequestedBeforeReady = false;
+                ShowExistingWindow();
+            }
+
             dashboardStartTask = StartDashboardAsync();
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
@@ -121,6 +160,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
+            LogDiagnostic("startup", exception);
             System.Windows.MessageBox.Show(
                 LocalizationService.Instance.Format(
                     "Loc.StartupFailedFormat",
@@ -155,19 +195,169 @@ public partial class App : System.Windows.Application
 
         if (!cleanupComplete)
         {
-            lifetime.Cancel();
+            CancelLifetime("app-on-exit-cancel");
             trayIcon?.Dispose();
+            if (singleInstance is not null)
+            {
+                singleInstance.ActivationRequested -=
+                    SingleInstanceOnActivationRequested;
+            }
             singleInstance?.Dispose();
             cleanupComplete = true;
         }
 
         settingsSaveTimer?.Stop();
-        settingsDialogGate.Dispose();
+        // OpenSettingsAsync can still be unwinding a nested modal loop while
+        // WPF raises OnExit. Leaving this process-lifetime SemaphoreSlim for
+        // the GC avoids an ObjectDisposedException from its finally/Release.
         lifetime.Dispose();
+        UnsubscribeDiagnostics();
         base.OnExit(e);
     }
 
-    private MainViewModel CreateViewModel(AppSettings source)
+    private void SubscribeDiagnostics()
+    {
+        if (diagnosticsSubscribed)
+        {
+            return;
+        }
+
+        DispatcherUnhandledException +=
+            ApplicationOnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException +=
+            CurrentDomainOnUnhandledException;
+        TaskScheduler.UnobservedTaskException +=
+            TaskSchedulerOnUnobservedTaskException;
+        diagnosticsSubscribed = true;
+    }
+
+    private void UnsubscribeDiagnostics()
+    {
+        if (!diagnosticsSubscribed)
+        {
+            return;
+        }
+
+        DispatcherUnhandledException -=
+            ApplicationOnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException -=
+            CurrentDomainOnUnhandledException;
+        TaskScheduler.UnobservedTaskException -=
+            TaskSchedulerOnUnobservedTaskException;
+        diagnosticsSubscribed = false;
+    }
+
+    private void ApplicationOnDispatcherUnhandledException(
+        object sender,
+        DispatcherUnhandledExceptionEventArgs e)
+    {
+        LogDiagnostic("dispatcher-unhandled", e.Exception);
+        // Unknown UI failures are logged but deliberately remain unhandled;
+        // continuing with a potentially corrupted WPF state is less safe.
+    }
+
+    private void CurrentDomainOnUnhandledException(
+        object sender,
+        System.UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception exception)
+        {
+            LogDiagnostic("appdomain-unhandled", exception);
+        }
+    }
+
+    private void TaskSchedulerOnUnobservedTaskException(
+        object? sender,
+        UnobservedTaskExceptionEventArgs e)
+    {
+        LogDiagnostic("task-unobserved", e.Exception);
+        e.SetObserved();
+    }
+
+    private void LogDiagnostic(string operation, Exception exception)
+    {
+        var appDataDirectory = settingsService?.AppDataDirectory ??
+            Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "CodexUsageWidget");
+        LocalDiagnosticLog.TryWrite(
+            appDataDirectory,
+            operation,
+            exception);
+    }
+
+    private void CancelLifetime(string operation)
+    {
+        try
+        {
+            lifetime.Cancel();
+        }
+        catch (AggregateException exception)
+        {
+            // Cancellation invokes all registered callbacks before surfacing
+            // the aggregate. Teardown remains valid and must continue.
+            LogDiagnostic(operation, exception);
+        }
+        catch (ObjectDisposedException) when (cleanupComplete)
+        {
+        }
+    }
+
+    private void ObserveUiTask(Task task, string operation)
+    {
+        _ = ObserveUiTaskCoreAsync(task, operation);
+    }
+
+    private async Task ObserveUiTaskCoreAsync(Task task, string operation)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException) when (
+            lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            LogDiagnostic(operation, exception);
+            if (!exitRequested)
+            {
+                trayIcon?.ShowBalloon(
+                    LocalizationService.Instance.Get("Loc.AppName"),
+                    LocalizationService.Instance.Format(
+                        "Loc.BackgroundOperationFailedFormat",
+                        exception.Message),
+                    System.Windows.Forms.ToolTipIcon.Warning);
+            }
+        }
+    }
+
+    private bool TryBeginInvoke(
+        Action callback,
+        DispatcherPriority priority)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            Dispatcher.BeginInvoke(callback, priority);
+            return true;
+        }
+        catch (InvalidOperationException) when (
+            exitRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+    }
+
+    private static MainViewModel CreateViewModel(AppSettings source)
     {
         var model = new MainViewModel
         {
@@ -183,18 +373,26 @@ public partial class App : System.Windows.Application
 
     private void WireWindowEvents(MainWindow window, MainViewModel model)
     {
-        window.RefreshRequested += (_, _) => _ = RefreshDashboardAsync();
+        window.RefreshRequested += (_, _) =>
+            ObserveUiTask(RefreshDashboardAsync(), "manual-refresh");
         window.HoverExpanded += (_, _) =>
-            _ = RefreshPeriodFromUiAsync(
-                UsagePeriod.Today,
-                refreshQuota: true);
+            ObserveUiTask(
+                RefreshPeriodFromUiAsync(
+                    UsagePeriod.Today,
+                    refreshQuota: true),
+                "hover-refresh");
         window.PeriodRefreshRequested += (_, args) =>
-            _ = RefreshPeriodFromUiAsync(
-                MapPeriod(args.Period),
-                refreshQuota: false);
+            ObserveUiTask(
+                RefreshPeriodFromUiAsync(
+                    MapPeriod(args.Period),
+                    refreshQuota: false),
+                "period-refresh");
         model.WeeklyQuotaHistoryRequested += (_, _) =>
-            _ = RefreshWeeklyQuotaHistoryFromUiAsync();
-        window.SettingsRequested += (_, _) => _ = OpenSettingsAsync();
+            ObserveUiTask(
+                RefreshWeeklyQuotaHistoryFromUiAsync(),
+                "weekly-quota-refresh");
+        window.SettingsRequested += (_, _) =>
+            ObserveUiTask(OpenSettingsAsync(), "open-settings");
         window.WidgetPositionChanged += (_, args) =>
         {
             settings.WindowLeft = args.Left;
@@ -211,12 +409,47 @@ public partial class App : System.Windows.Application
     private TrayIconService CreateTrayIcon()
     {
         return new TrayIconService(
-            () => Dispatcher.Invoke(ToggleWindowVisibility),
-            () => Dispatcher.Invoke(() => _ = RefreshDashboardAsync()),
-            () => Dispatcher.Invoke(() => _ = OpenSettingsAsync()),
-            enabled => Dispatcher.Invoke(() => _ = ChangeStartupAsync(enabled)),
-            () => Dispatcher.Invoke(() => _ = ExitApplicationAsync()),
+            () => TryInvoke(ToggleWindowVisibility),
+            () => TryInvoke(() =>
+                ObserveUiTask(RefreshDashboardAsync(), "tray-refresh")),
+            () => TryInvoke(() =>
+                ObserveUiTask(OpenSettingsAsync(), "tray-settings")),
+            enabled => TryInvoke(() =>
+                ObserveUiTask(ChangeStartupAsync(enabled), "startup-setting")),
+            () => TryInvoke(() =>
+                ObserveUiTask(ExitApplicationAsync(), "application-exit")),
             ThemeService.ShouldUseLightTheme(settings.ThemeMode));
+    }
+
+    private bool TryInvoke(Action callback)
+    {
+        if (exitRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                callback();
+            }
+            else
+            {
+                Dispatcher.Invoke(callback);
+            }
+
+            return true;
+        }
+        catch (InvalidOperationException) when (
+            exitRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
     }
 
     private async Task StartDashboardAsync()
@@ -240,6 +473,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
+            LogDiagnostic("dashboard-start", exception);
             viewModel.IsLive = false;
             viewModel.SetResetMessage("Loc.NoLocalCodexData");
             viewModel.SetRateLimitSummaryMessage("Loc.SelectCodexHome");
@@ -361,29 +595,7 @@ public partial class App : System.Windows.Application
                 Owner = mainWindow,
                 Topmost = mainWindow.Topmost,
             };
-            var originalGlassTransparency =
-                settings.GlassTransparencyPercent;
-            var settingsAccepted = false;
-            void PreviewGlassTransparency(int value) =>
-                mainWindow.SetGlassTransparencyPercent(value);
-            dialog.GlassTransparencyPreviewChanged +=
-                PreviewGlassTransparency;
-            try
-            {
-                settingsAccepted = dialog.ShowDialog() == true;
-            }
-            finally
-            {
-                dialog.GlassTransparencyPreviewChanged -=
-                    PreviewGlassTransparency;
-                if (!settingsAccepted)
-                {
-                    mainWindow.SetGlassTransparencyPercent(
-                        originalGlassTransparency);
-                }
-            }
-
-            if (!settingsAccepted || dialog.ResultSettings is null)
+            if (dialog.ShowDialog() != true || dialog.ResultSettings is null)
             {
                 return;
             }
@@ -391,7 +603,9 @@ public partial class App : System.Windows.Application
             var previousHome = settings.CodexHomePath;
             settings = dialog.ResultSettings.Normalize();
             ApplySettingsToUi(settings);
-            _ = ApplyMonitoringLifecycleAsync();
+            ObserveUiTask(
+                ApplyMonitoringLifecycleAsync(),
+                "settings-monitoring-transition");
 
             try
             {
@@ -414,23 +628,40 @@ public partial class App : System.Windows.Application
                     MessageBoxImage.Warning);
             }
 
-            await PersistSettingsAsync();
-
             var homeChanged = !string.Equals(
                 previousHome,
                 settings.CodexHomePath,
                 StringComparison.OrdinalIgnoreCase);
             if (homeChanged && dashboard is not null)
             {
-                await dashboard.ChangeCodexHomeAsync(
-                    settings.CodexHomePath,
-                    lifetime.Token);
-                if (!string.IsNullOrWhiteSpace(dashboard.CurrentCodexHome))
+                try
                 {
-                    settings.CodexHomePath = dashboard.CurrentCodexHome;
+                    var changed = await dashboard.ChangeCodexHomeAsync(
+                        settings.CodexHomePath,
+                        lifetime.Token);
+                    if (!changed)
+                    {
+                        throw new IOException(
+                            LocalizationService.Instance.Get(
+                                "Loc.CodexHomeChangeFailed"));
+                    }
+
+                    settings.CodexHomePath =
+                        dashboard.CurrentCodexHome ?? previousHome;
+                }
+                catch
+                {
+                    // Keep settings consistent with the source that is still
+                    // live. In particular, never persist an invalid Home before
+                    // the candidate has opened successfully.
+                    settings.CodexHomePath =
+                        dashboard.CurrentCodexHome ?? previousHome;
                     await PersistSettingsAsync();
+                    throw;
                 }
             }
+
+            await PersistSettingsAsync();
             if (dialog.RebuildIndexRequested && dashboard is not null)
             {
                 await dashboard.RebuildIndexAsync(lifetime.Token);
@@ -441,6 +672,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
+            LogDiagnostic("settings-apply", exception);
             System.Windows.MessageBox.Show(
                 mainWindow,
                 LocalizationService.Instance.Format(
@@ -495,7 +727,7 @@ public partial class App : System.Windows.Application
         exitRequested = true;
         CaptureSettingsFromUi();
         settingsSaveTimer?.Stop();
-        lifetime.Cancel();
+        CancelLifetime("app-exit-cancel");
 
         try
         {
@@ -504,14 +736,25 @@ public partial class App : System.Windows.Application
                 await settingsService.SaveAsync(CreateSettingsSnapshot());
             }
         }
-        catch
+        catch (Exception exception)
         {
             // Exiting must not be prevented by a transient settings write failure.
+            LogDiagnostic("settings-save-on-exit", exception);
         }
 
         if (dashboard is not null)
         {
-            await dashboard.DisposeAsync();
+            try
+            {
+                await dashboard.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                // Cleanup must continue even if a background component reports
+                // a late failure while the process is already shutting down.
+                LogDiagnostic("dashboard-dispose", exception);
+            }
+
             dashboard = null;
         }
 
@@ -575,6 +818,62 @@ public partial class App : System.Windows.Application
         {
             mainWindow.Collapse(force: true);
         }
+    }
+
+    private void SingleInstanceOnActivationRequested(
+        object? sender,
+        EventArgs e)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        TryBeginInvoke(
+            ShowExistingWindow,
+            DispatcherPriority.Send);
+    }
+
+    private void ShowExistingWindow()
+    {
+        if (exitRequested)
+        {
+            return;
+        }
+
+        if (mainWindow is null)
+        {
+            activationRequestedBeforeReady = true;
+            return;
+        }
+
+        if (!mainWindow.IsVisible)
+        {
+            mainWindow.Show();
+            if (viewModel?.IsPinned == true)
+            {
+                mainWindow.Expand();
+            }
+            else
+            {
+                mainWindow.Collapse(force: true);
+            }
+        }
+
+        var visibleDialog = Windows
+            .OfType<Window>()
+            .LastOrDefault(window =>
+                window != mainWindow && window.IsVisible);
+        var activationTarget = visibleDialog ?? mainWindow;
+        if (activationTarget.WindowState == WindowState.Minimized)
+        {
+            activationTarget.WindowState = WindowState.Normal;
+        }
+
+        var keepTopmost = activationTarget.Topmost;
+        activationTarget.Topmost = true;
+        activationTarget.Activate();
+        activationTarget.Topmost = keepTopmost;
     }
 
     private void ViewModelOnPropertyChanged(
@@ -758,10 +1057,25 @@ public partial class App : System.Windows.Application
             if (!settingsWriteWarningShown)
             {
                 settingsWriteWarningShown = true;
+                LogDiagnostic("settings-save-permission", exception);
                 trayIcon?.ShowBalloon(
                     LocalizationService.Instance.Get("Loc.AppName"),
                     LocalizationService.Instance.Get(
                         "Loc.SettingsSavePermission"),
+                System.Windows.Forms.ToolTipIcon.Warning);
+            }
+        }
+        catch (Exception exception)
+        {
+            LogDiagnostic("settings-save", exception);
+            if (!settingsWriteWarningShown)
+            {
+                settingsWriteWarningShown = true;
+                trayIcon?.ShowBalloon(
+                    LocalizationService.Instance.Get("Loc.AppName"),
+                    LocalizationService.Instance.Format(
+                        "Loc.BackgroundOperationFailedFormat",
+                        exception.Message),
                     System.Windows.Forms.ToolTipIcon.Warning);
             }
         }
@@ -790,7 +1104,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Dispatcher.BeginInvoke(
+        TryBeginInvoke(
             () =>
             {
                 var useLightTheme = ThemeService.ShouldUseLightTheme(
@@ -811,12 +1125,14 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Dispatcher.BeginInvoke(
+        TryBeginInvoke(
             () =>
             {
                 systemSuspended = e.Mode == PowerModes.Suspend;
-                _ = ApplyMonitoringLifecycleAsync(
-                    forceResumeRecovery: e.Mode == PowerModes.Resume);
+                ObserveUiTask(
+                    ApplyMonitoringLifecycleAsync(
+                        forceResumeRecovery: e.Mode == PowerModes.Resume),
+                    "power-monitoring-transition");
             },
             DispatcherPriority.Send);
     }
@@ -833,12 +1149,14 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Dispatcher.BeginInvoke(
+        TryBeginInvoke(
             () =>
             {
                 sessionLocked =
                     e.Reason == SessionSwitchReason.SessionLock;
-                _ = ApplyMonitoringLifecycleAsync();
+                ObserveUiTask(
+                    ApplyMonitoringLifecycleAsync(),
+                    "session-monitoring-transition");
             },
             DispatcherPriority.Send);
     }
@@ -853,7 +1171,9 @@ public partial class App : System.Windows.Application
         }
 
         displayOff = e.State == SessionDisplayState.Off;
-        _ = ApplyMonitoringLifecycleAsync();
+        ObserveUiTask(
+            ApplyMonitoringLifecycleAsync(),
+            "display-monitoring-transition");
     }
 
     private async Task ApplyMonitoringLifecycleAsync(
@@ -922,6 +1242,7 @@ public partial class App : System.Windows.Application
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         var workArea = SystemParameters.WorkArea;
         var collapsedWidth = window.CurrentCollapsedWidth;
+        var collapsedHeight = window.CurrentCollapsedHeight;
         var left = source.WindowLeft;
         var top = source.WindowTop;
 
@@ -931,7 +1252,7 @@ public partial class App : System.Windows.Application
             double.IsFinite(savedTop) &&
             savedLeft + collapsedWidth > SystemParameters.VirtualScreenLeft &&
             savedLeft < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth &&
-            savedTop + CodexUsageWidget.MainWindow.CollapsedHeight > SystemParameters.VirtualScreenTop &&
+            savedTop + collapsedHeight > SystemParameters.VirtualScreenTop &&
             savedTop < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight)
         {
             window.Left = savedLeft;

@@ -8,6 +8,10 @@ namespace CodexUsageWidget.Core;
 /// New files are sampled from a bounded tail; known files read only bytes that
 /// appeared after their previous observation.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "SemaphoreSlim does not allocate a native handle unless AvailableWaitHandle is used, which this type never does. Disposing it could race with late asynchronous readers during source replacement.")]
 public sealed class RateLimitTailMonitor
 {
     private const int MaximumBufferedLineBytes = 128 * 1024;
@@ -21,11 +25,8 @@ public sealed class RateLimitTailMonitor
 
     public RateLimitTailMonitor(int maximumTailBytesPerNewFile = 512 * 1024)
     {
-        if (maximumTailBytesPerNewFile <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(maximumTailBytesPerNewFile));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumTailBytesPerNewFile);
 
         _maximumTailBytesPerNewFile = maximumTailBytesPerNewFile;
     }
@@ -87,6 +88,10 @@ public sealed class RateLimitTailMonitor
                 catch (UnauthorizedAccessException)
                 {
                     // A concurrently protected file must not hide other updates.
+                }
+                catch (System.Security.SecurityException)
+                {
+                    // Treat policy-denied files like other inaccessible files.
                 }
                 catch (IOException)
                 {

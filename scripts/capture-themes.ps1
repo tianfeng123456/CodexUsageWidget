@@ -459,9 +459,11 @@ try {
         }
         $settings.isPinned = $false
         $settings.autoCollapse = $true
-        $settings |
-            ConvertTo-Json -Depth 8 |
-            Set-Content -LiteralPath $SettingsPath -Encoding utf8
+        $settingsJson = $settings | ConvertTo-Json -Depth 8
+        [IO.File]::WriteAllText(
+            $SettingsPath,
+            $settingsJson,
+            [Text.UTF8Encoding]::new($false))
 
         $modeName = $mode.ToLowerInvariant()
         $collapsedScreenshot =
@@ -489,9 +491,11 @@ try {
         $settings = Get-Content -LiteralPath $SettingsPath -Raw |
             ConvertFrom-Json
         $settings.isPinned = $true
-        $settings |
-            ConvertTo-Json -Depth 8 |
-            Set-Content -LiteralPath $SettingsPath -Encoding utf8
+        $settingsJson = $settings | ConvertTo-Json -Depth 8
+        [IO.File]::WriteAllText(
+            $SettingsPath,
+            $settingsJson,
+            [Text.UTF8Encoding]::new($false))
 
         $process = $null
         try {
@@ -614,7 +618,7 @@ if ($completed) {
     catch {
     }
 
-    [ordered]@{
+    $reportJson = [ordered]@{
         capturedAt = [DateTimeOffset]::Now.ToString('O')
         executable = $Executable
         sha256 = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash
@@ -624,9 +628,9 @@ if ($completed) {
         glassTransparencyPercent = $GlassTransparencyPercent
         originalSettingsRestored = $true
         themes = @($results)
-    } |
-        ConvertTo-Json -Depth 8 |
-        Set-Content `
-            -LiteralPath (Join-Path $OutputDirectory 'theme-audit.json') `
-            -Encoding utf8
+    } | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        (Join-Path $OutputDirectory 'theme-audit.json'),
+        $reportJson,
+        [Text.UTF8Encoding]::new($false))
 }

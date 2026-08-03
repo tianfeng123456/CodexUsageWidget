@@ -6,6 +6,7 @@ namespace CodexUsageWidget.Services;
 public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon notifyIcon;
+    private readonly ContextMenuStrip contextMenu;
     private readonly ToolStripMenuItem showItem;
     private readonly ToolStripMenuItem refreshItem;
     private readonly ToolStripMenuItem settingsItem;
@@ -56,8 +57,8 @@ public sealed class TrayIconService : IDisposable
             null,
             (_, _) => exit());
 
-        var menu = new ContextMenuStrip();
-        menu.Items.AddRange(
+        contextMenu = new ContextMenuStrip();
+        contextMenu.Items.AddRange(
         [
             showItem,
             refreshItem,
@@ -71,7 +72,7 @@ public sealed class TrayIconService : IDisposable
         notifyIcon = new NotifyIcon
         {
             Text = LocalizationService.Instance.Get("Loc.TrayDefaultTooltip"),
-            ContextMenuStrip = menu,
+            ContextMenuStrip = contextMenu,
             Visible = false,
         };
         SetUsagePercent(null);
@@ -218,7 +219,10 @@ public sealed class TrayIconService : IDisposable
 
         disposed = true;
         notifyIcon.Visible = false;
+        notifyIcon.ContextMenuStrip = null;
         notifyIcon.Dispose();
+        startupItem.CheckedChanged -= StartupItemOnCheckedChanged;
+        contextMenu.Dispose();
         usageIcon?.Dispose();
         usageIcon = null;
     }

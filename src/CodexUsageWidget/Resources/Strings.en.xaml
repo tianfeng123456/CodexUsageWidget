@@ -24,7 +24,15 @@
     <system:String x:Key="Loc.ReasoningOutput">Reasoning output</system:String>
     <system:String x:Key="Loc.Archived">Archived</system:String>
     <system:String x:Key="Loc.NoTokenRecords">No token records for this period</system:String>
-    <system:String x:Key="Loc.LoadingPeriod">Reading this period…</system:String>
+    <system:String x:Key="Loc.LoadingPeriod">Summarizing this period…</system:String>
+    <system:String x:Key="Loc.InitialIndexHint">First use or an index upgrade may take a while. Later runs process only new logs.</system:String>
+    <system:String x:Key="Loc.InitialIndexLocalOnly">Processed locally. Logs are never uploaded.</system:String>
+    <system:String x:Key="Loc.InitialIndexProgressAutomationName">History indexing progress</system:String>
+    <system:String x:Key="Loc.PreparingHistoryIndex">Preparing the local index…</system:String>
+    <system:String x:Key="Loc.FinalizingHistoryIndex">Logs read. Writing the local index…</system:String>
+    <system:String x:Key="Loc.HistoryIndexComplete">History is ready</system:String>
+    <system:String x:Key="Loc.HistoryIndexIncomplete">Some logs could not be read</system:String>
+    <system:String x:Key="Loc.HistoryIndexIncompleteHint">Successfully read data was kept. Select refresh to retry later.</system:String>
     <system:String x:Key="Loc.ClickTabToRefresh">Select a tab to refresh this period</system:String>
     <system:String x:Key="Loc.Total">Total</system:String>
     <system:String x:Key="Loc.Tasks">Tasks</system:String>
@@ -53,7 +61,7 @@
     <system:String x:Key="Loc.ThemeDescription">System mode follows Windows events without polling.</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">Theme mode</system:String>
     <system:String x:Key="Loc.GlassTransparency">Glass transparency</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">0% is fully opaque; 50% is the default glass look; 100% is the safest maximum transparency that preserves dragging and hit testing. Changes preview live.</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% is fully opaque; 50% is the default glass look; 100% is the safest maximum transparency that preserves dragging and hit testing. Changes apply after Save.</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">Glass transparency</system:String>
     <system:String x:Key="Loc.FollowSystem">Follow system</system:String>
     <system:String x:Key="Loc.Light">Light</system:String>
@@ -66,6 +74,7 @@
     <system:String x:Key="Loc.CollapsedMode">Idle style</system:String>
     <system:String x:Key="Loc.CollapsedModeDescription">Choose the widget shape while it rests on the desktop.</system:String>
     <system:String x:Key="Loc.CollapsedModeAutomation">Idle style</system:String>
+    <system:String x:Key="Loc.CollapsedModeGlow">Glow</system:String>
     <system:String x:Key="Loc.CollapsedModeCircle">Circle</system:String>
     <system:String x:Key="Loc.CollapsedModeCapsule">Capsule</system:String>
     <system:String x:Key="Loc.Maintenance">Maintenance</system:String>
@@ -84,8 +93,10 @@
     <system:String x:Key="Loc.NoLocalCodexData">Local Codex data was not found</system:String>
     <system:String x:Key="Loc.SelectCodexHome">Choose a Codex Home containing sessions in Settings</system:String>
     <system:String x:Key="Loc.ReadUsageFailedFormat">Usage is temporarily unavailable: {0}</system:String>
+    <system:String x:Key="Loc.BackgroundOperationFailedFormat">The action could not be completed: {0}</system:String>
     <system:String x:Key="Loc.StartupPermission">Windows startup could not be changed. Check the current user’s registry permissions.</system:String>
-    <system:String x:Key="Loc.SettingsApplyFailedFormat">Some settings could not be applied: {0}</system:String>
+  <system:String x:Key="Loc.SettingsApplyFailedFormat">Some settings could not be applied: {0}</system:String>
+  <system:String x:Key="Loc.CodexHomeChangeFailed">The selected Codex Home could not be opened; the previous data source was retained</system:String>
     <system:String x:Key="Loc.SettingsSavePermission">Settings could not be saved. Check permissions for the local app-data folder.</system:String>
 
     <system:String x:Key="Loc.TrayShow">Show</system:String>
@@ -102,7 +113,7 @@
     <system:String x:Key="Loc.ClickWeeklyObservations">Select to view daily observations</system:String>
     <system:String x:Key="Loc.WeeklyUsedFormat">Week used {0:0.#}%</system:String>
     <system:String x:Key="Loc.WeeklyQuotaUnknown">Weekly quota --</system:String>
-    <system:String x:Key="Loc.BuildingHistoryFormat">Building history index {0:P0}</system:String>
+    <system:String x:Key="Loc.BuildingHistoryFormat">Organizing Codex history {0:P0}</system:String>
     <system:String x:Key="Loc.PreviousDayChangeFormat">vs previous day {0:+0.#;-0.#;0} pp</system:String>
     <system:String x:Key="Loc.PreviousDayUnknown">vs previous day —</system:String>
     <system:String x:Key="Loc.DailyConsumedFormat">Used that day {0:0.#}%</system:String>
@@ -121,6 +132,7 @@
     <system:String x:Key="Loc.PeriodMonth">Month</system:String>
     <system:String x:Key="Loc.PeriodAll">All</system:String>
     <system:String x:Key="Loc.PeriodSectionTitleFormat">{0} task usage</system:String>
+    <system:String x:Key="Loc.LocalCumulativeSectionTitle">Cumulative usage from local logs</system:String>
     <system:String x:Key="Loc.SyncingLatestObservation">Syncing latest observations</system:String>
     <system:String x:Key="Loc.LoadingSevenDayObservations">Reading seven-day observations</system:String>
     <system:String x:Key="Loc.DirectObservationUpdatedFormat">Direct log · Updated {0:HH:mm}</system:String>

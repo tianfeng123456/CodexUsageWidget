@@ -12,6 +12,10 @@ public sealed class DisplayPowerLifecycleContractTests
         "src/CodexUsageWidget/SettingsWindow.xaml.cs";
     private const string DashboardControllerPath =
         "src/CodexUsageWidget/Services/DashboardController.cs";
+    private const string MainWindowPath =
+        "src/CodexUsageWidget/MainWindow.xaml.cs";
+    private const string SettingsWindowCodePath =
+        "src/CodexUsageWidget/SettingsWindow.xaml.cs";
 
     [Fact]
     public void DisplayMonitor_RegistersForSessionDisplayPowerBroadcasts()
@@ -36,7 +40,7 @@ public sealed class DisplayPowerLifecycleContractTests
             source,
             StringComparison.Ordinal);
         Assert.Matches(
-            @"notificationHandle\s*=\s*" +
+            @"registeredHandle\s*=\s*" +
             @"RegisterPowerSettingNotification\(\s*" +
             @"handle\s*,\s*ref\s+setting\s*,\s*" +
             @"DeviceNotifyWindowHandle\s*\)",
@@ -65,12 +69,16 @@ public sealed class DisplayPowerLifecycleContractTests
             "window.Closed -= WindowOnClosed;",
             source,
             StringComparison.Ordinal);
-        Assert.Matches(
-            @"UnregisterPowerSettingNotification\(\s*" +
-            @"notificationHandle\s*\)",
-            source);
         Assert.Contains(
-            "notificationHandle = IntPtr.Zero;",
+            "notificationHandle?.Dispose();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SafeHandleZeroOrMinusOneIsInvalid",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "UnregisterPowerSettingNotification(handle)",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -238,8 +246,156 @@ public sealed class DisplayPowerLifecycleContractTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WindowDispatches_AreGuardedDuringCloseAndDispatcherShutdown()
+    {
+        string mainWindow = ReadRepositoryFile(MainWindowPath);
+        string settingsWindow = ReadRepositoryFile(SettingsWindowCodePath);
+        string app = ReadRepositoryFile(AppPath);
+
+        Assert.Contains("private DispatcherOperation? TryBeginInvoke(", mainWindow);
+        Assert.Contains("if (_isClosed ||", mainWindow);
+        Assert.Equal(1, Count(mainWindow, "Dispatcher.BeginInvoke("));
+        Assert.Contains("isClosed = true;", settingsWindow);
+        Assert.Contains("Dispatcher.HasShutdownFinished", settingsWindow);
+        Assert.Contains("catch (InvalidOperationException) when (", settingsWindow);
+        Assert.Equal(1, Count(settingsWindow, "Dispatcher.BeginInvoke("));
+        Assert.Contains("private bool TryInvoke(Action callback)", app);
+        Assert.Contains("Dispatcher.CheckAccess()", app);
+        Assert.Equal(1, Count(app, "Dispatcher.Invoke("));
+    }
+
+    [Fact]
+    public void PanelCancellation_HandsIncompleteMigrationToSourceLifecycle()
+    {
+        string source = ReadRepositoryFile(DashboardControllerPath);
+
+        Assert.Equal(
+            3,
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"ContinueInitialIndexIfIncomplete\(")
+            .Count);
+        Assert.Matches(
+            @"private\s+void\s+ContinueInitialIndexIfIncomplete\([\s\S]*?" +
+            @"service\.HasCompletedInitialIndex[\s\S]*?" +
+            @"monitoringActivity\.IsCurrent\(activity\)[\s\S]*?" +
+            @"EnsureInitialIndexRunning\(service,\s*source\)",
+            source);
+    }
+
+    [Fact]
+    public void DashboardUiNotifications_AreIgnoredAfterDispatcherShutdown()
+    {
+        string source = ReadRepositoryFile(DashboardControllerPath);
+
+        Assert.Single(
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"dispatcher\.BeginInvoke\(")
+            .Cast<System.Text.RegularExpressions.Match>());
+        Assert.True(
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"TryBeginInvoke\(")
+            .Count >= 7);
+        Assert.Contains(
+            "dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "catch (InvalidOperationException) when (",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppSystemEventNotifications_AreIgnoredAfterDispatcherShutdown()
+    {
+        string source = ReadRepositoryFile(AppPath);
+
+        Assert.Single(
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"Dispatcher\.BeginInvoke\(")
+            .Cast<System.Text.RegularExpressions.Match>());
+        Assert.True(
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"TryBeginInvoke\(")
+            .Count >= 5);
+        Assert.Contains(
+            "Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LogDiagnostic(\"startup\", exception);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppDoesNotDisposeSettingsDialogGateDuringModalUnwind()
+    {
+        string source = ReadRepositoryFile(AppPath);
+
+        Assert.DoesNotContain(
+            "settingsDialogGate.Dispose()",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "settingsDialogGate.Release()",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PanelCancellationRunsOutsideItsOwnershipLock()
+    {
+        string source = ReadRepositoryFile(DashboardControllerPath);
+
+        Assert.Matches(
+            @"lock\s*\(panelRefreshLock\)[\s\S]*?" +
+            @"previous\s*=\s*panelRefreshRequest;[\s\S]*?" +
+            @"panelRefreshRequest\s*=\s*next;[\s\S]*?" +
+            @"\}[\s\S]*?previous\?\.Cancel\(\);",
+            source);
+        Assert.DoesNotContain(
+            "panelRefreshRequest?.Cancel();",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WatcherRecoveryLeavesTheWatcherCallbackStackBeforeRecreation()
+    {
+        string source = ReadRepositoryFile(DashboardControllerPath);
+
+        Assert.Matches(
+            @"Task\.Run\([\s\S]*?RunTrackedRecoveryAsync\(",
+            source);
+        Assert.Contains("DisposeWatcherRegistration(registration);", source);
+        Assert.Contains("watchers.Remove(registration);", source);
+    }
+
     private static string ReadRepositoryFile(string relativePath) =>
         File.ReadAllText(FindRepositoryFile(relativePath));
+
+    private static int Count(string source, string value)
+    {
+        var count = 0;
+        var offset = 0;
+        while ((offset = source.IndexOf(
+                   value,
+                   offset,
+                   StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+
+        return count;
+    }
 
     private static string FindRepositoryFile(string relativePath)
     {

@@ -1,9 +1,14 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using CodexUsageWidget.Core;
 
 namespace CodexUsageWidget.Services;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "This process-lifetime service never accesses SemaphoreSlim.AvailableWaitHandle. Disposing the gate could race with a final asynchronous settings save.")]
 public sealed class SettingsService
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -13,6 +18,7 @@ public sealed class SettingsService
     };
 
     private readonly SemaphoreSlim gate = new(1, 1);
+    private bool primaryNeedsRepair;
 
     public SettingsService(string? appDataDirectory = null)
     {
@@ -32,52 +38,22 @@ public sealed class SettingsService
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(SettingsPath))
-            {
-                return new AppSettings();
-            }
-
-            await using var stream = new FileStream(
+            var result = await AtomicJsonFileStorage.ReadAsync(
                 SettingsPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete,
-                16 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            using var document = await JsonDocument.ParseAsync(
-                stream,
+                DeserializeSettings,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
-            var settings = document.RootElement.Deserialize<AppSettings>(
-                SerializerOptions);
-            settings ??= new AppSettings();
-
-            var hasTransparencySemanticsVersion =
-                document.RootElement.ValueKind == JsonValueKind.Object &&
-                document.RootElement.EnumerateObject().Any(
-                    property => string.Equals(
-                        property.Name,
-                        "glassTransparencySemanticsVersion",
-                        StringComparison.OrdinalIgnoreCase));
-            if (!hasTransparencySemanticsVersion ||
-                settings.GlassTransparencySemanticsVersion <
-                GlassTransparencyPolicy.CurrentSemanticsVersion)
+            primaryNeedsRepair = result.RequiresPrimaryRepair;
+            if (result.PrimaryFailure is not null)
             {
-                settings.GlassTransparencyPercent =
-                    GlassTransparencyPolicy.MigrateLegacyPercent(
-                        settings.GlassTransparencyPercent);
-                settings.GlassTransparencySemanticsVersion =
-                    GlassTransparencyPolicy.CurrentSemanticsVersion;
+                LocalDiagnosticLog.TryWrite(
+                    AppDataDirectory,
+                    result.Value is null
+                        ? "settings-load-defaults"
+                        : $"settings-load-recovered-{result.Source}",
+                    result.PrimaryFailure);
             }
 
-            return settings.Normalize();
-        }
-        catch (JsonException)
-        {
-            return new AppSettings();
-        }
-        catch (IOException)
-        {
-            return new AppSettings();
+            return result.Value ?? new AppSettings();
         }
         finally
         {
@@ -93,29 +69,42 @@ public sealed class SettingsService
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            Directory.CreateDirectory(AppDataDirectory);
-            var temporaryPath = SettingsPath + ".tmp";
-            await using (var stream = new FileStream(
-                             temporaryPath,
-                             FileMode.Create,
-                             FileAccess.Write,
-                             FileShare.None,
-                             16 * 1024,
-                             FileOptions.Asynchronous))
-            {
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    settings,
-                    SerializerOptions,
-                    cancellationToken).ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            File.Move(temporaryPath, SettingsPath, overwrite: true);
+            var json = JsonSerializer.Serialize(settings, SerializerOptions);
+            await AtomicJsonFileStorage.WriteAsync(
+                SettingsPath,
+                Encoding.UTF8.GetBytes(json),
+                primaryNeedsRepair,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            primaryNeedsRepair = false;
         }
         finally
         {
             gate.Release();
         }
+    }
+
+    private static AppSettings DeserializeSettings(JsonElement root)
+    {
+        var settings = root.Deserialize<AppSettings>(SerializerOptions)
+            ?? throw new JsonException("Settings JSON deserialized to null.");
+        var hasTransparencySemanticsVersion =
+            root.ValueKind == JsonValueKind.Object &&
+            root.EnumerateObject().Any(
+                property => string.Equals(
+                    property.Name,
+                    "glassTransparencySemanticsVersion",
+                    StringComparison.OrdinalIgnoreCase));
+        if (!hasTransparencySemanticsVersion ||
+            settings.GlassTransparencySemanticsVersion <
+            GlassTransparencyPolicy.CurrentSemanticsVersion)
+        {
+            settings.GlassTransparencyPercent =
+                GlassTransparencyPolicy.MigrateLegacyPercent(
+                    settings.GlassTransparencyPercent);
+            settings.GlassTransparencySemanticsVersion =
+                GlassTransparencyPolicy.CurrentSemanticsVersion;
+        }
+
+        return settings.Normalize();
     }
 }

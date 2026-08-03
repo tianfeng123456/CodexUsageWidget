@@ -2,6 +2,11 @@
 
 # Codex Usage Widget
 
+[![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
+
+Current stable release: **v1.2.0**. Read this page in English or switch to the
+[Chinese README](README.md).
+
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota
 and per-task token usage. It is built with WPF, .NET 8, SQLite, and MVVM, and
 is published as a self-contained, single-file Windows x64 executable. Users do
@@ -24,9 +29,10 @@ See the [changelog](CHANGELOG.md) for version history.
 
 ## Interface
 
-Choose either an 80×80 circle or a 208×80 capsule under
-**Appearance → Idle style**. Both are transparent desktop idle surfaces that
-keep only the remaining percentage and lightweight status information.
+Choose a 32×32 glow, an 80×80 circle, or a 208×80 capsule under
+**Appearance → Idle style**. Glow omits the number and communicates remaining
+quota through a static halo and status color. Circle and capsule retain the
+remaining percentage and lightweight status information.
 Hovering expands the selected style directly into a 420×540 detail panel,
 with no short-lived intermediate state. The panel can be pinned, or it
 collapses immediately back to the selected style when the pointer leaves.
@@ -44,20 +50,20 @@ progress reaches that segment.
 The capsule status and waveform color follow the remaining quota: 70% and
 above is “Plenty left,” 30%–69% is “Usage stable,” 10%–29% is “Quota low,”
 1%–9% is “Almost empty,” and 0% is “Empty.” Initial loading can also show
-“Syncing” or “Waiting.” Circle and capsule share the same policy, which is
+“Syncing” or “Waiting.” Glow, circle, and capsule share the same policy, which is
 recomputed only on existing quota events and adds no polling. Capsule numbers,
 labels, and status colors use dedicated high-contrast light/dark palettes. The
 capsule does not use the shadow effect that can produce a rectangular clipped
 surface, and its desktop snapshot is independently clipped to the rounded
 shape so pixels outside the capsule remain fully transparent.
 
-| Default circle | Optional capsule | Expanded panel |
-|---|---|---|
-| ![Default circle](docs/screenshots/final-collapsed.png) | ![Optional capsule](docs/screenshots/idle-capsule-collapsed.png) | ![Expanded panel](docs/screenshots/expanded.png) |
+| Glow | Default circle | Optional capsule | Expanded panel |
+|---|---|---|---|
+| ![Glow](docs/screenshots/idle-glow-collapsed.png) | ![Default circle](docs/screenshots/final-collapsed.png) | ![Optional capsule](docs/screenshots/idle-capsule-collapsed.png) | ![Expanded panel](docs/screenshots/expanded.png) |
 
 These public screenshots come from one validated EXE batch.
 `capture-ui.ps1` generates the default circle and expanded panel, while
-`audit-idle-styles.ps1` generates the capsule. Window dimensions, interaction
+`audit-idle-styles.ps1` generates Glow and Capsule. Window dimensions, interaction
 results, and the tested EXE hash are recorded in
 [`ui-audit.json`](docs/screenshots/ui-audit.json) and
 [`idle-style-audit.json`](docs/idle-style-audit.json); both reports record the
@@ -87,10 +93,9 @@ default for new installations. Higher values make the main glass background
 more transparent. `100%` exactly matches the previous `99%` safe endpoint:
 the app retains a nonzero material and hit-test layer so controls, dragging, and
 pointer recognition remain reliable. Text, icons, progress lines, and status
-colors remain fully opaque. Changes preview immediately; Cancel restores the
-previous value and Save persists it. Moving the slider only changes in-memory
-brush opacity and does not recapture the desktop, read logs, query statistics,
-or write SQLite.
+colors remain fully opaque. Transparency changes apply after Save. Settings
+does not show a simulated glass sample, avoiding a misleading mismatch with
+the user's actual desktop background.
 
 Neither idle nor expanded state draws an extra rectangular base or decorative
 frame. The 80×80 circle uses a circular surface; the 208×80 capsule and
@@ -151,10 +156,11 @@ Settings are ordered by usage frequency:
 language, idle style, and glass transparency are all in the first Appearance
 group. Idle styles:
 
-- **Circle**: 80×80, the default and most compact option.
+- **Glow**: 32×32, number-free quota halo with the smallest desktop footprint.
+- **Circle**: 80×80, the default option with a percentage readout.
 - **Capsule**: 208×80, with a short persistent status beside the percentage.
 
-Switching idle style adds no polling, log reads, or SQLite queries. Both styles
+Switching idle style adds no polling, log reads, or SQLite queries. All styles
 use the same event-driven refresh policy while idle.
 
 The default **Pause monitoring while the display is off** setting is also
@@ -219,15 +225,31 @@ session_index.jsonl
 - Total tokens = input tokens + output tokens.
 - Cached input is already included in input, and reasoning output is already
   included in output; neither is counted twice.
-- Period totals use deltas between adjacent cumulative counters and handle
-  independent counter resets, file growth, truncation, and rewrites.
+- Each rollout file keeps an independent monotonic high-water mark for all five
+  cumulative fields. Only values above the existing high water become usage,
+  so slightly older concurrent snapshots cannot create a full-counter spike.
+- File growth remains incremental. Truncation, same-length rewrites, and file
+  replacement are detected by continuity checks and start a fresh high-water
+  checkpoint from the replacement content.
 - A child-agent rollout may copy root-task history before its first top-level
   `inter_agent_communication_metadata` record. Those inherited events are
   excluded instead of counted again. The first real turn and all later usage
   remain included, and later communication records do not create new cutoffs.
-- Existing indexes are corrected once on the next explicit statistics refresh.
-  Startup and collapsed idle mode do not scan historical logs for this
-  migration, and the persisted checkpoint prevents a second subtraction.
+- A root-level subagent fork without `parent_thread_id` compares its cumulative-
+  token sequence with the source task and trims their longest matching prefix.
+  Copied trigger markers therefore cannot end deduplication early. If the source
+  task has not been indexed yet, the fork waits for a later refresh without
+  committing an unverified total.
+- Indexes from the older counter algorithm are rebuilt once on the next
+  user-requested statistics refresh. An index that already uses high-water
+  accounting reads only first-row metadata and reparses affected root-level
+  subagent forks.
+  Startup and collapsed idle mode do not scan history for this migration. The
+  accounting version and checkpoints keep later work incremental.
+- The All page is a cumulative total from readable logs in the selected local
+  Codex Home. The Codex account Profile may use different server-side coverage
+  and refresh timing, so the two views are not guaranteed to match moment by
+  moment.
 - Remaining percentage comes from the newest local `rate_limits` event. When
   absent, the widget shows `--` instead of guessing a quota from total usage.
 - Weekly-quota details read only the exact `limit_id=codex`, 10,080-minute
@@ -269,10 +291,16 @@ session_index.jsonl
 
 ## Privacy and local storage
 
-The app does not connect to the network or upload data. It does not read
-`auth.json`, passwords, access tokens, user prompts, or conversation bodies.
-SQLite stores only the task identifiers, titles, time buckets, token counters,
-and incremental-file state needed for statistics.
+The app does not connect to the network, upload data, or open `auth.json`,
+passwords, or access tokens. The parser must sequentially read local JSONL
+lines to identify token, quota, and session-metadata events, but it does not
+extract, persist, or upload prompt or conversation-body fields. SQLite stores
+only the task identifiers, titles, time buckets, token counters, and
+incremental-file state needed for statistics.
+
+Errors that cannot be handled safely in the UI are written on a best-effort
+basis to `%LocalAppData%\CodexUsageWidget\diagnostics.log`. The local-only log
+rotates at 1 MiB; a logging failure never blocks shutdown or recovery.
 
 Settings and indexes are stored under:
 
@@ -321,12 +349,13 @@ script restores the original settings afterward and writes
 `docs/localization-audit.json`.
 
 `audit-idle-styles.ps1` backs up and restores the original settings, launches
-both idle styles, and verifies direct `80×80 / 208×80 → 420×540` hover
+all three idle styles, and verifies direct `32×32 / 80×80 / 208×80 → 420×540` hover
 expansion with no observable intermediate top-level window size. It writes
 `docs/idle-style-audit.json` plus screenshots for both styles. Idle resource
 measurements can also be run separately:
 
 ```powershell
+.\scripts\measure-idle.ps1 -CollapsedMode Glow
 .\scripts\measure-idle.ps1 -CollapsedMode Circle
 .\scripts\measure-idle.ps1 -CollapsedMode Capsule
 ```

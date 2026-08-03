@@ -473,11 +473,10 @@
                                                Text="{Binding ElementName=GlassTransparencySlider, Path=Value, StringFormat={}{0:0}%}" />
                                     <Slider x:Name="GlassTransparencySlider"
                                             Grid.Row="1"
-                                            Margin="0,2,0,0"
+                                            Margin="0,5,0,0"
                                             Style="{StaticResource GlassTransparencySliderStyle}"
                                             AutomationProperties.AutomationId="GlassTransparencySlider"
-                                            AutomationProperties.Name="{DynamicResource Loc.GlassTransparencyAutomation}"
-                                            ValueChanged="GlassTransparencySlider_OnValueChanged" />
+                                            AutomationProperties.Name="{DynamicResource Loc.GlassTransparencyAutomation}" />
                                 </Grid>
                             </Grid>
 
@@ -533,6 +532,8 @@
                                           Grid.Column="1"
                                           AutomationProperties.AutomationId="CollapsedModeComboBox"
                                           AutomationProperties.Name="{DynamicResource Loc.CollapsedModeAutomation}">
+                                    <ComboBoxItem Content="{DynamicResource Loc.CollapsedModeGlow}"
+                                                  Tag="Glow" />
                                     <ComboBoxItem Content="{DynamicResource Loc.CollapsedModeCircle}"
                                                   Tag="Circle" />
                                     <ComboBoxItem Content="{DynamicResource Loc.CollapsedModeCapsule}"

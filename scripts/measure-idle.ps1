@@ -7,7 +7,7 @@ param(
     [int]$WarmupSeconds = 12,
     [ValidateRange(3, 60)]
     [int]$IndexStabilitySeconds = 5,
-    [ValidateSet('Circle', 'Capsule')]
+    [ValidateSet('Glow', 'Circle', 'Capsule')]
     [string]$CollapsedMode = 'Circle',
     [switch]$PrimeWeeklyQuotaOverlay,
     [switch]$PrimeFromPinnedStartup,
@@ -418,6 +418,8 @@ function Invoke-WeeklyQuotaOverlayPrime {
         [int]$TimeoutMilliseconds,
         [Parameter(Mandatory = $true)]
         [double]$CollapsedWidth,
+        [Parameter(Mandatory = $true)]
+        [double]$CollapsedHeight,
         [switch]$StartPinned
     )
 
@@ -434,7 +436,7 @@ function Invoke-WeeklyQuotaOverlayPrime {
         Assert-WindowLogicalSize `
             -Measurement $collapsed `
             -ExpectedWidth $CollapsedWidth `
-            -ExpectedHeight 80 `
+            -ExpectedHeight $CollapsedHeight `
             -Phase 'weekly-quota priming start'
 
         $anchorCenter = [System.Drawing.Point]::new(
@@ -512,7 +514,7 @@ function Invoke-WeeklyQuotaOverlayPrime {
     $recollapsed = Wait-ForWindowLogicalSize `
         -WindowHandle $WindowHandle `
         -ExpectedWidth $CollapsedWidth `
-        -ExpectedHeight 80 `
+        -ExpectedHeight $CollapsedHeight `
         -TimeoutMilliseconds $TimeoutMilliseconds `
         -Phase 'weekly-quota priming collapse'
 
@@ -598,7 +600,12 @@ $databaseBeforeLaunch = Get-DatabaseSnapshot
 $process = $null
 $settingsPath = Join-Path $env:LOCALAPPDATA 'CodexUsageWidget\settings.json'
 $originalSettingsBytes = $null
-$expectedCollapsedWidth = if ($CollapsedMode -eq 'Capsule') { 208 } else { 80 }
+$expectedCollapsedWidth = switch ($CollapsedMode) {
+    'Glow' { 32 }
+    'Capsule' { 208 }
+    default { 80 }
+}
+$expectedCollapsedHeight = if ($CollapsedMode -eq 'Glow') { 32 } else { 80 }
 try {
     if ($PrimeFromPinnedStartup -and -not $PrimeWeeklyQuotaOverlay) {
         throw (
@@ -622,9 +629,11 @@ try {
     $settings.isPinned = [bool](
         $PrimeWeeklyQuotaOverlay -and $PrimeFromPinnedStartup)
     $settings.autoCollapse = $true
-    $settings |
-        ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $settingsPath -Encoding utf8
+    $settingsJson = $settings | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $settingsPath,
+        $settingsJson,
+        [Text.UTF8Encoding]::new($false))
 
     [System.Windows.Forms.Cursor]::Position =
         [System.Drawing.Point]::new(12, 12)
@@ -647,13 +656,13 @@ try {
         $initialMeasurement = Wait-ForWindowLogicalSize `
             -WindowHandle $windowHandle `
             -ExpectedWidth $expectedCollapsedWidth `
-            -ExpectedHeight 80 `
+            -ExpectedHeight $expectedCollapsedHeight `
             -TimeoutMilliseconds $AutomationTimeoutMilliseconds `
             -Phase 'warm-up collapse'
         Assert-WindowLogicalSize `
             -Measurement $initialMeasurement `
             -ExpectedWidth $expectedCollapsedWidth `
-            -ExpectedHeight 80 `
+            -ExpectedHeight $expectedCollapsedHeight `
             -Phase 'warm-up completion'
     }
 
@@ -666,6 +675,7 @@ try {
             -WindowHandle $windowHandle `
             -TimeoutMilliseconds $AutomationTimeoutMilliseconds `
             -CollapsedWidth $expectedCollapsedWidth `
+            -CollapsedHeight $expectedCollapsedHeight `
             -StartPinned:$PrimeFromPinnedStartup
     }
 
@@ -697,7 +707,7 @@ try {
     Assert-WindowLogicalSize `
         -Measurement $measurementAtStart `
         -ExpectedWidth $expectedCollapsedWidth `
-        -ExpectedHeight 80 `
+        -ExpectedHeight $expectedCollapsedHeight `
         -Phase 'idle observation start'
 
     $cpuBefore = $process.TotalProcessorTime
@@ -731,7 +741,7 @@ try {
     $collapsedAtEnd = Test-WindowLogicalSize `
         -Measurement $measurementAtEnd `
         -ExpectedWidth $expectedCollapsedWidth `
-        -ExpectedHeight 80
+        -ExpectedHeight $expectedCollapsedHeight
     $databaseAfter = Get-DatabaseSnapshot
     $cpuDeltaSeconds = ($cpuAfter - $cpuBefore).TotalSeconds
     $wallSeconds = $stopwatch.Elapsed.TotalSeconds
@@ -773,7 +783,7 @@ try {
         primeFromPinnedStartup = [bool]$PrimeFromPinnedStartup
         collapsedMode = $CollapsedMode
         expectedCollapsedLogicalWidth = $expectedCollapsedWidth
-        expectedCollapsedLogicalHeight = 80
+        expectedCollapsedLogicalHeight = $expectedCollapsedHeight
         automationTimeoutMilliseconds = $AutomationTimeoutMilliseconds
         weeklyQuotaPriming = $weeklyQuotaPriming
         windowLogicalWidth = [Math]::Round(
@@ -819,7 +829,10 @@ try {
     $directory = Split-Path -Parent $OutputPath
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
     $json = $result | ConvertTo-Json -Depth 8
-    $json | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    [IO.File]::WriteAllText(
+        $OutputPath,
+        $json,
+        [Text.UTF8Encoding]::new($false))
     $json
 
     if ($validationFailures.Count -gt 0) {

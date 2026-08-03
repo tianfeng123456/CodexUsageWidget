@@ -49,11 +49,14 @@ internal static class HollowLineIconRenderer
             size,
             size,
             PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.CompositingQuality = CompositingQuality.HighQuality;
-        graphics.Clear(Color.Transparent);
+        var completed = false;
+        try
+        {
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.Clear(Color.Transparent);
 
         var scale = size / DesignSize;
         var center = size / 2f;
@@ -160,7 +163,16 @@ internal static class HollowLineIconRenderer
                 dotRadius * 2);
         }
 
-        return bitmap;
+            completed = true;
+            return bitmap;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                bitmap.Dispose();
+            }
+        }
     }
 
     internal static VisualStatus GetVisualStatus(double? remainingPercent)
@@ -183,6 +195,7 @@ internal static class HollowLineIconRenderer
         };
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyIcon(IntPtr handle);

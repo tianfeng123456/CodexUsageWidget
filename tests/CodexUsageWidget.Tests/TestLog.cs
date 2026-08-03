@@ -8,7 +8,9 @@ internal static class TestLog
         string id,
         string? sessionId = null,
         string? parentThreadId = null,
-        DateTimeOffset? timestamp = null) =>
+        DateTimeOffset? timestamp = null,
+        string? forkedFromId = null,
+        string? threadSource = null) =>
         Serialize(new Dictionary<string, object?>
         {
             ["timestamp"] = (timestamp ?? DateTimeOffset.UtcNow).ToString("O"),
@@ -18,6 +20,8 @@ internal static class TestLog
                 ["session_id"] = sessionId,
                 ["id"] = id,
                 ["parent_thread_id"] = parentThreadId,
+                ["forked_from_id"] = forkedFromId,
+                ["thread_source"] = threadSource,
                 // This intentionally proves that the parser ignores unrelated metadata.
                 ["base_instructions"] = new string('x', 96 * 1024)
             }

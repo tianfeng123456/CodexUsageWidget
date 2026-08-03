@@ -24,7 +24,15 @@
     <system:String x:Key="Loc.ReasoningOutput">推理输出</system:String>
     <system:String x:Key="Loc.Archived">归档</system:String>
     <system:String x:Key="Loc.NoTokenRecords">该时段暂无 Token 记录</system:String>
-    <system:String x:Key="Loc.LoadingPeriod">正在读取该时段…</system:String>
+    <system:String x:Key="Loc.LoadingPeriod">正在汇总该时段数据…</system:String>
+    <system:String x:Key="Loc.InitialIndexHint">首次使用或索引升级时可能需要一些时间，完成后只处理新增日志。</system:String>
+    <system:String x:Key="Loc.InitialIndexLocalOnly">全部在本机完成，不上传日志</system:String>
+    <system:String x:Key="Loc.InitialIndexProgressAutomationName">历史索引进度</system:String>
+    <system:String x:Key="Loc.PreparingHistoryIndex">正在准备本地索引…</system:String>
+    <system:String x:Key="Loc.FinalizingHistoryIndex">日志读取完成，正在写入本地索引…</system:String>
+    <system:String x:Key="Loc.HistoryIndexComplete">历史记录整理完成</system:String>
+    <system:String x:Key="Loc.HistoryIndexIncomplete">部分日志暂时无法读取</system:String>
+    <system:String x:Key="Loc.HistoryIndexIncompleteHint">已保留成功读取的数据，稍后点击刷新可重试。</system:String>
     <system:String x:Key="Loc.ClickTabToRefresh">点击标签刷新该时段</system:String>
     <system:String x:Key="Loc.Total">总计</system:String>
     <system:String x:Key="Loc.Tasks">任务</system:String>
@@ -53,7 +61,7 @@
     <system:String x:Key="Loc.ThemeDescription">系统模式通过事件同步，不进行轮询。</system:String>
     <system:String x:Key="Loc.ThemeModeAutomation">主题模式</system:String>
     <system:String x:Key="Loc.GlassTransparency">玻璃透明度</system:String>
-    <system:String x:Key="Loc.GlassTransparencyDescription">0% 完全不透明；50% 为默认玻璃效果；100% 为保持拖动与识别的最大安全透明度。调整时实时预览。</system:String>
+    <system:String x:Key="Loc.GlassTransparencyDescription">0% 完全不透明；50% 为默认玻璃效果；100% 为保持拖动与识别的最大安全透明度。保存后生效。</system:String>
     <system:String x:Key="Loc.GlassTransparencyAutomation">玻璃透明度</system:String>
     <system:String x:Key="Loc.FollowSystem">跟随系统</system:String>
     <system:String x:Key="Loc.Light">浅色</system:String>
@@ -66,6 +74,7 @@
     <system:String x:Key="Loc.CollapsedMode">待机样式</system:String>
     <system:String x:Key="Loc.CollapsedModeDescription">选择组件收起并停留在桌面时的形态。</system:String>
     <system:String x:Key="Loc.CollapsedModeAutomation">待机样式</system:String>
+    <system:String x:Key="Loc.CollapsedModeGlow">微光</system:String>
     <system:String x:Key="Loc.CollapsedModeCircle">圆环</system:String>
     <system:String x:Key="Loc.CollapsedModeCapsule">胶囊</system:String>
     <system:String x:Key="Loc.Maintenance">维护</system:String>
@@ -84,8 +93,10 @@
     <system:String x:Key="Loc.NoLocalCodexData">未找到本地 Codex 数据</system:String>
     <system:String x:Key="Loc.SelectCodexHome">请在设置中选择包含 sessions 的 Codex Home</system:String>
     <system:String x:Key="Loc.ReadUsageFailedFormat">暂时无法读取用量：{0}</system:String>
+    <system:String x:Key="Loc.BackgroundOperationFailedFormat">操作未完成：{0}</system:String>
     <system:String x:Key="Loc.StartupPermission">无法修改开机启动设置，请检查当前用户的注册表权限。</system:String>
-    <system:String x:Key="Loc.SettingsApplyFailedFormat">设置未能完全应用：{0}</system:String>
+  <system:String x:Key="Loc.SettingsApplyFailedFormat">设置未能完全应用：{0}</system:String>
+  <system:String x:Key="Loc.CodexHomeChangeFailed">无法打开所选 Codex Home，已保留原数据源</system:String>
     <system:String x:Key="Loc.SettingsSavePermission">设置无法保存，请检查本地应用数据目录权限。</system:String>
 
     <system:String x:Key="Loc.TrayShow">显示</system:String>
@@ -102,7 +113,7 @@
     <system:String x:Key="Loc.ClickWeeklyObservations">点击查看每日观测</system:String>
     <system:String x:Key="Loc.WeeklyUsedFormat">周已用 {0:0.#}%</system:String>
     <system:String x:Key="Loc.WeeklyQuotaUnknown">周额度 --</system:String>
-    <system:String x:Key="Loc.BuildingHistoryFormat">正在建立历史索引 {0:P0}</system:String>
+    <system:String x:Key="Loc.BuildingHistoryFormat">正在整理历史记录 {0:P0}</system:String>
     <system:String x:Key="Loc.PreviousDayChangeFormat">较前日 {0:+0.#;-0.#;0} 个百分点</system:String>
     <system:String x:Key="Loc.PreviousDayUnknown">较前日 —</system:String>
     <system:String x:Key="Loc.DailyConsumedFormat">当日消耗 {0:0.#}%</system:String>
@@ -121,6 +132,7 @@
     <system:String x:Key="Loc.PeriodMonth">本月</system:String>
     <system:String x:Key="Loc.PeriodAll">累计</system:String>
     <system:String x:Key="Loc.PeriodSectionTitleFormat">{0}任务消耗</system:String>
+    <system:String x:Key="Loc.LocalCumulativeSectionTitle">本机日志累计任务消耗</system:String>
     <system:String x:Key="Loc.SyncingLatestObservation">正在同步最新观测</system:String>
     <system:String x:Key="Loc.LoadingSevenDayObservations">正在读取七日观测</system:String>
     <system:String x:Key="Loc.DirectObservationUpdatedFormat">日志直接观测 · 更新 {0:HH:mm}</system:String>

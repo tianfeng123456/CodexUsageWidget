@@ -54,11 +54,17 @@ public sealed class MainWindowXamlContractTests
         string xaml = File.ReadAllText(xamlPath);
         string codeBehind = File.ReadAllText(xamlPath + ".cs");
 
+        Assert.Contains("x:Name=\"GlowHost\"", xaml);
         Assert.Contains("x:Name=\"CollapsedHost\"", xaml);
         Assert.Contains("x:Name=\"CapsuleHost\"", xaml);
         Assert.Contains("x:Name=\"CapsuleGlassBackdrop\"", xaml);
         Assert.Contains("Width=\"208\"", xaml);
         Assert.Contains("Height=\"80\"", xaml);
+        Assert.Contains("ShowText=\"False\"", xaml);
+        Assert.Contains("ShowProgressDot=\"False\"", xaml);
+        Assert.Contains("GlowThickness=\"4.6\"", xaml);
+        Assert.Contains("public const double GlowCollapsedSize = 32", codeBehind);
+        Assert.Contains("CurrentCollapsedHeight", codeBehind);
         Assert.DoesNotContain("TransitionCapsule", xaml);
         Assert.DoesNotContain("TransitionCapsule", codeBehind);
         Assert.DoesNotContain("BeginOpeningVisual", codeBehind);
@@ -144,6 +150,61 @@ public sealed class MainWindowXamlContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Value=\"{Binding DisplayName}\"",
+            xaml,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InitialIndex_ShowsRealProgressAndSeparatesSummaryStage()
+    {
+        string xaml = File.ReadAllText(FindMainWindowXaml());
+
+        Assert.Contains(
+            "x:Name=\"InitialIndexProgressBar\"",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "x:Name=\"InitialIndexNotice\"",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "x:Name=\"WeeklyIndexNotice\"",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "x:Name=\"WeeklyIndexProgressBar\"",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DataContext.IndexProgress",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DataContext.IndexStatusText",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DataContext.IsIndexingNoticeVisible",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DataContext.IsIndexProgressVisible",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DataContext.IndexStatusDetailText",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Loc.InitialIndexLocalOnly",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Loc.LoadingPeriod",
+            xaml,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "IsIndeterminate=\"True\"",
             xaml,
             StringComparison.Ordinal);
     }

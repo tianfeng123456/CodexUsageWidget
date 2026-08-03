@@ -2,6 +2,10 @@ using Microsoft.Win32;
 
 namespace CodexUsageWidget.Services;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Performance",
+    "CA1822:Mark members as static",
+    Justification = "This class is injected as a replaceable operating-system service; an instance API preserves that testable boundary.")]
 public sealed class StartupRegistrationService
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";

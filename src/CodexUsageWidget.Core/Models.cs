@@ -41,33 +41,65 @@ public readonly record struct TokenUsage(
         SaturatingAdd(left.OutputTokens, right.OutputTokens),
         SaturatingAdd(left.ReasoningOutputTokens, right.ReasoningOutputTokens));
 
-    public static TokenUsage Delta(TokenUsage current, TokenUsage? previous)
+    /// <summary>
+    /// Returns only the portion of <paramref name="current"/> that exceeds the
+    /// highest cumulative values already observed for the same rollout file.
+    /// Lower concurrent snapshots are treated as stale observations. Physical
+    /// file replacement and truncation are handled by the repository, which
+    /// starts a fresh checkpoint before parsing the replacement content.
+    /// </summary>
+    public static TokenUsage DeltaAboveHighWater(
+        TokenUsage current,
+        TokenUsage? highWater)
     {
         current = current.NonNegative();
-        if (previous is null)
+        if (highWater is null)
         {
             return current;
         }
 
-        var before = previous.Value.NonNegative();
+        var before = highWater.Value.NonNegative();
         return new TokenUsage(
-            DeltaCounter(current.InputTokens, before.InputTokens),
-            DeltaCounter(
+            IncreaseAboveHighWater(current.InputTokens, before.InputTokens),
+            IncreaseAboveHighWater(
                 current.CachedInputTokens,
                 before.CachedInputTokens),
-            DeltaCounter(
+            IncreaseAboveHighWater(
                 current.CacheWriteInputTokens,
                 before.CacheWriteInputTokens),
-            DeltaCounter(current.OutputTokens, before.OutputTokens),
-            DeltaCounter(
+            IncreaseAboveHighWater(current.OutputTokens, before.OutputTokens),
+            IncreaseAboveHighWater(
                 current.ReasoningOutputTokens,
                 before.ReasoningOutputTokens));
     }
 
-    private static long DeltaCounter(long current, long previous) =>
-        current >= previous
-            ? current - previous
-            : current;
+    public static TokenUsage MergeHighWater(
+        TokenUsage? highWater,
+        TokenUsage current)
+    {
+        current = current.NonNegative();
+        if (highWater is null)
+        {
+            return current;
+        }
+
+        var before = highWater.Value.NonNegative();
+        return new TokenUsage(
+            Math.Max(before.InputTokens, current.InputTokens),
+            Math.Max(before.CachedInputTokens, current.CachedInputTokens),
+            Math.Max(
+                before.CacheWriteInputTokens,
+                current.CacheWriteInputTokens),
+            Math.Max(before.OutputTokens, current.OutputTokens),
+            Math.Max(
+                before.ReasoningOutputTokens,
+                current.ReasoningOutputTokens));
+    }
+
+    private static long IncreaseAboveHighWater(long current, long highWater) =>
+        current > highWater
+            ? current - highWater
+            : 0;
 
     private static long SaturatingAdd(long left, long right)
     {
@@ -90,7 +122,9 @@ public sealed record RateLimitWindowSnapshot(
     int? WindowMinutes,
     DateTimeOffset? ResetsAt)
 {
-    public double RemainingPercent => Math.Clamp(100d - UsedPercent, 0d, 100d);
+    public double RemainingPercent => double.IsFinite(UsedPercent)
+        ? Math.Clamp(100d - UsedPercent, 0d, 100d)
+        : 0d;
 }
 
 public sealed record RateLimitSnapshot(
@@ -103,7 +137,8 @@ public sealed record RateLimitSnapshot(
 {
     public RateLimitWindowSnapshot? MostConstrained =>
         new[] { Primary, Secondary }
-            .Where(static window => window is not null)
+            .Where(static window =>
+                window is not null && double.IsFinite(window.UsedPercent))
             .MinBy(static window => window!.RemainingPercent);
 
     public double? RemainingPercent => MostConstrained?.RemainingPercent;
@@ -158,15 +193,31 @@ public sealed record TokenUsageDelta(
 public sealed record SessionMetadata(
     string? Id,
     string? SessionId,
-    string? ParentThreadId)
+    string? ParentThreadId,
+    string? ForkedFromId,
+    string? ThreadSource)
 {
-    public string? RootTaskId =>
-        FirstNonEmpty(SessionId, ParentThreadId, Id);
+    public string? RootTaskId => IsRootLikeSubagentFork
+        ? ForkedFromId
+        : FirstNonEmpty(SessionId, ParentThreadId, Id);
+
+    public bool HasForkedHistory =>
+        !string.IsNullOrWhiteSpace(ForkedFromId) &&
+        !string.Equals(ForkedFromId, Id, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsRootLikeSubagentFork =>
+        HasForkedHistory &&
+        string.Equals(ThreadSource, "subagent", StringComparison.OrdinalIgnoreCase) &&
+        string.IsNullOrWhiteSpace(ParentThreadId) &&
+        (string.IsNullOrWhiteSpace(SessionId) ||
+         string.Equals(SessionId, Id, StringComparison.OrdinalIgnoreCase));
 
     public bool IsChildSession =>
         !string.IsNullOrWhiteSpace(RootTaskId) &&
         !string.IsNullOrWhiteSpace(Id) &&
         !string.Equals(RootTaskId, Id, StringComparison.OrdinalIgnoreCase);
+
+    public bool RequiresReplayTrim => IsChildSession || HasForkedHistory;
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
@@ -176,8 +227,8 @@ public sealed record LogParseCheckpoint(
     long Offset,
     string? RootTaskId,
     string? OwnSessionId,
-    bool IsChildSession,
-    TokenUsage? PreviousCumulative,
+    bool RequiresReplayTrim,
+    TokenUsage? HighWaterCumulative,
     bool ReplayBoundarySeen,
     long? FirstReplayBoundaryOffset = null)
 {
@@ -232,7 +283,18 @@ public sealed record RefreshResult(
     int FilesScanned,
     int FilesChanged,
     long BytesProcessed,
-    DateTimeOffset CompletedAt);
+    DateTimeOffset CompletedAt,
+    bool CompletedSuccessfully);
+
+public enum IndexProgressStage
+{
+    Idle,
+    Preparing,
+    Reading,
+    Finalizing,
+    Completed,
+    Incomplete,
+}
 
 public sealed class IndexProgressChangedEventArgs : EventArgs
 {
@@ -240,12 +302,12 @@ public sealed class IndexProgressChangedEventArgs : EventArgs
         long processedBytes,
         long totalBytes,
         string? currentFile,
-        bool isComplete)
+        IndexProgressStage stage)
     {
         ProcessedBytes = processedBytes;
         TotalBytes = totalBytes;
         CurrentFile = currentFile;
-        IsComplete = isComplete;
+        Stage = stage;
     }
 
     public long ProcessedBytes { get; }
@@ -254,7 +316,12 @@ public sealed class IndexProgressChangedEventArgs : EventArgs
 
     public string? CurrentFile { get; }
 
-    public bool IsComplete { get; }
+    public IndexProgressStage Stage { get; }
+
+    public bool IsComplete => Stage == IndexProgressStage.Completed;
+
+    public bool IsTerminal =>
+        Stage is IndexProgressStage.Completed or IndexProgressStage.Incomplete;
 
     public double Progress =>
         TotalBytes <= 0

@@ -126,7 +126,8 @@ public sealed class WeeklyQuotaSparkline : FrameworkElement
                     usableWidth * (index + 0.5d) / count;
             if (index >= days.Length ||
                 !days[index].IsObserved ||
-                days[index].DailyConsumedPercent is not { } consumed)
+                days[index].DailyConsumedPercent is not { } consumed ||
+                !double.IsFinite(consumed))
             {
                 drawingContext.DrawEllipse(
                     null,

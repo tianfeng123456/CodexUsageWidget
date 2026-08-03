@@ -276,8 +276,44 @@
     </Window.Resources>
 
     <Grid x:Name="RootVisual">
-        <!-- Circle and capsule are alternative stable idle surfaces. The
+        <!-- Glow, circle, and capsule are alternative stable idle surfaces. The
              selected surface expands directly into the full panel. -->
+        <Grid x:Name="GlowHost"
+              Width="32"
+              Height="32"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              Visibility="Collapsed"
+              Panel.ZIndex="30"
+              AutomationProperties.Name="{Binding RemainingAutomationName, Mode=OneWay}">
+            <!-- The nearly transparent circular fill keeps the hollow center
+                 reliable for hover and drag on layered WPF windows. -->
+            <Border Background="#0A000000"
+                    BorderThickness="0"
+                    CornerRadius="16">
+                <Grid>
+                    <Ellipse Width="24"
+                             Height="24"
+                             Stroke="{DynamicResource RingTrackBrush}"
+                             StrokeThickness="1.2" />
+                    <controls:UsageRing Width="24"
+                                        Height="24"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Percentage="{Binding RemainingPercent}"
+                                        StrokeThickness="1.4"
+                                        GlowThickness="4.6"
+                                        ShowText="False"
+                                        ShowProgressDot="False"
+                                        TrackBrush="Transparent"
+                                        GoodBrush="{DynamicResource GoodBrush}"
+                                        WarningBrush="{DynamicResource WarningBrush}"
+                                        UrgentBrush="{DynamicResource UrgentBrush}"
+                                        CriticalBrush="{DynamicResource CriticalBrush}" />
+                </Grid>
+            </Border>
+        </Grid>
+
         <Grid x:Name="CollapsedHost"
               Width="80"
               Height="80"
@@ -802,6 +838,89 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
 
+                                    <Border x:Name="InitialIndexNotice"
+                                            Grid.Row="1"
+                                            Width="280"
+                                            Padding="18,16"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Panel.ZIndex="3"
+                                            Background="{DynamicResource OverlayBackgroundBrush}"
+                                            BorderThickness="0"
+                                            CornerRadius="14">
+                                        <Border.Style>
+                                            <Style TargetType="{x:Type Border}">
+                                                <Setter Property="Visibility"
+                                                        Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding DataContext.IsIndexingNoticeVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                                 Value="True">
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+
+                                        <StackPanel>
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       Text="{Binding DataContext.IndexStatusText, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                            <TextBlock Margin="0,7,0,0"
+                                                       HorizontalAlignment="Center"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       FontSize="10.5"
+                                                       LineHeight="16"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       Text="{Binding DataContext.IndexStatusDetailText, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                            <ProgressBar x:Name="InitialIndexProgressBar"
+                                                         Width="220"
+                                                         Height="5"
+                                                         Margin="0,15,0,0"
+                                                         Minimum="0"
+                                                         Maximum="1"
+                                                         Value="{Binding DataContext.IndexProgress, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                         AutomationProperties.Name="{DynamicResource Loc.InitialIndexProgressAutomationName}">
+                                                <ProgressBar.Style>
+                                                    <Style TargetType="{x:Type ProgressBar}">
+                                                        <Setter Property="Visibility"
+                                                                Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.IsIndexProgressVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                                         Value="True">
+                                                                <Setter Property="Visibility"
+                                                                        Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ProgressBar.Style>
+                                                <ProgressBar.Template>
+                                                    <ControlTemplate TargetType="{x:Type ProgressBar}">
+                                                        <Grid x:Name="PART_Track"
+                                                              ClipToBounds="True">
+                                                            <Border Background="{DynamicResource BarTrackBrush}"
+                                                                    CornerRadius="2.5" />
+                                                            <Border x:Name="PART_Indicator"
+                                                                    HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource AccentBrush}"
+                                                                    CornerRadius="2.5" />
+                                                        </Grid>
+                                                    </ControlTemplate>
+                                                </ProgressBar.Template>
+                                            </ProgressBar>
+                                            <TextBlock Margin="0,9,0,0"
+                                                       HorizontalAlignment="Center"
+                                                       FontSize="9.5"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                                       Text="{DynamicResource Loc.InitialIndexLocalOnly}" />
+                                        </StackPanel>
+                                    </Border>
+
                                     <TextBlock Grid.Row="1"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
@@ -845,6 +964,8 @@
                                                                        Value="0" />
                                                             <Condition Binding="{Binding IsLoading}"
                                                                        Value="True" />
+                                                            <Condition Binding="{Binding DataContext.IsIndexingNoticeVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                                       Value="False" />
                                                         </MultiDataTrigger.Conditions>
                                                         <Setter Property="Visibility"
                                                                 Value="Visible" />
@@ -1157,6 +1278,74 @@
                                                                StrokeThickness="1.2"
                                                                DotRadius="2.3" />
 
+                                <Border x:Name="WeeklyIndexNotice"
+                                        Width="280"
+                                        Padding="18,14"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Panel.ZIndex="6"
+                                        Background="{DynamicResource ToolTipBackgroundBrush}"
+                                        BorderThickness="0"
+                                        CornerRadius="14">
+                                    <Border.Style>
+                                        <Style TargetType="{x:Type Border}">
+                                            <Setter Property="Visibility"
+                                                    Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsIndexingNoticeVisible}"
+                                                             Value="True">
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel>
+                                        <TextBlock HorizontalAlignment="Center"
+                                                   TextAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="12.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                   Text="{Binding IndexStatusText}" />
+                                        <ProgressBar x:Name="WeeklyIndexProgressBar"
+                                                     Width="220"
+                                                     Height="5"
+                                                     Margin="0,13,0,0"
+                                                     Minimum="0"
+                                                     Maximum="1"
+                                                     Value="{Binding IndexProgress}"
+                                                     AutomationProperties.Name="{DynamicResource Loc.InitialIndexProgressAutomationName}">
+                                            <ProgressBar.Style>
+                                                <Style TargetType="{x:Type ProgressBar}">
+                                                    <Setter Property="Visibility"
+                                                            Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsIndexProgressVisible}"
+                                                                     Value="True">
+                                                            <Setter Property="Visibility"
+                                                                    Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ProgressBar.Style>
+                                            <ProgressBar.Template>
+                                                <ControlTemplate TargetType="{x:Type ProgressBar}">
+                                                    <Grid x:Name="PART_Track"
+                                                          ClipToBounds="True">
+                                                        <Border Background="{DynamicResource BarTrackBrush}"
+                                                                CornerRadius="2.5" />
+                                                        <Border x:Name="PART_Indicator"
+                                                                HorizontalAlignment="Left"
+                                                                Background="{DynamicResource AccentBrush}"
+                                                                CornerRadius="2.5" />
+                                                    </Grid>
+                                                </ControlTemplate>
+                                            </ProgressBar.Template>
+                                        </ProgressBar>
+                                    </StackPanel>
+                                </Border>
+
                                 <Border HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
                                         Margin="0,0,2,0"
@@ -1213,6 +1402,8 @@
                                                                    Value="False" />
                                                         <Condition Binding="{Binding IsWeeklyQuotaLoading}"
                                                                    Value="True" />
+                                                        <Condition Binding="{Binding IsIndexingNoticeVisible}"
+                                                                   Value="False" />
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility"
                                                             Value="Visible" />

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,6 +19,7 @@ namespace CodexUsageWidget;
 
 public partial class MainWindow : Window
 {
+    public const double GlowCollapsedSize = 32;
     public const double CircleCollapsedWidth = 80;
     public const double CapsuleCollapsedWidth = 208;
     // Compatibility alias for scripts and callers that mean the default
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
     private double _expandedAnchorOffsetY;
     private bool _adjustingWindowPosition;
     private bool _isDragging;
+    private bool _isClosed;
     private DispatcherOperation? _pendingCollapseOperation;
     private IntPtr _dragWindowHandle;
     private NativePoint _dragStartCursor;
@@ -122,10 +125,21 @@ public partial class MainWindow : Window
     public double CurrentCollapsedWidth =>
         GetCollapsedWidth(_collapsedMode);
 
+    public double CurrentCollapsedHeight =>
+        GetCollapsedHeight(_collapsedMode);
+
     public static double GetCollapsedWidth(CollapsedWidgetMode mode) =>
-        mode == CollapsedWidgetMode.Capsule
-            ? CapsuleCollapsedWidth
-            : CircleCollapsedWidth;
+        mode switch
+        {
+            CollapsedWidgetMode.Glow => GlowCollapsedSize,
+            CollapsedWidgetMode.Capsule => CapsuleCollapsedWidth,
+            _ => CircleCollapsedWidth,
+        };
+
+    public static double GetCollapsedHeight(CollapsedWidgetMode mode) =>
+        mode == CollapsedWidgetMode.Glow
+            ? GlowCollapsedSize
+            : CollapsedHeight;
 
     public void SetCollapsedMode(CollapsedWidgetMode mode)
     {
@@ -616,7 +630,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _pendingCollapseOperation = Dispatcher.BeginInvoke(
+        _pendingCollapseOperation = TryBeginInvoke(
             () =>
             {
                 _pendingCollapseOperation = null;
@@ -876,7 +890,7 @@ public partial class MainWindow : Window
         object sender,
         System.Windows.DpiChangedEventArgs e)
     {
-        Dispatcher.BeginInvoke(
+        TryBeginInvoke(
             () =>
             {
                 var expanded = ViewModel?.IsExpanded == true;
@@ -886,7 +900,7 @@ public partial class MainWindow : Window
             DispatcherPriority.Loaded);
     }
 
-    private void DisableNativeMaterial()
+    private static void DisableNativeMaterial()
     {
         // No native AccentPolicy or system backdrop is ever installed. Calling
         // AccentState.Disabled on an otherwise normal layered WPF window can
@@ -930,6 +944,16 @@ public partial class MainWindow : Window
         }
 
         _pendingBackdropRefreshOperation = null;
+        if (!targetExpanded &&
+            targetCollapsedMode == CollapsedWidgetMode.Glow)
+        {
+            // Glow mode is deliberately a transparent status light. It has no
+            // glass surface to capture or blur while idle.
+            CollapsedGlassBackdrop.ImageSource = null;
+            CapsuleGlassBackdrop.ImageSource = null;
+            return;
+        }
+
         var target = targetExpanded
             ? ExpandedGlassBackdrop
             : targetCollapsedMode == CollapsedWidgetMode.Capsule
@@ -948,7 +972,7 @@ public partial class MainWindow : Window
         // tint fallback. Clear it immediately, then replace it after the one
         // event-driven capture and background blur finish.
         target.ImageSource = null;
-        _pendingBackdropRefreshOperation = Dispatcher.BeginInvoke(
+        _pendingBackdropRefreshOperation = TryBeginInvoke(
             () =>
             {
                 _pendingBackdropRefreshOperation = null;
@@ -983,7 +1007,7 @@ public partial class MainWindow : Window
                 : collapsedMode == CollapsedWidgetMode.Capsule
                     ? WidgetWindowShape.Capsule
                     : WidgetWindowShape.Collapsed;
-             var image = await Task.Run(
+            var image = await Task.Run(
                 () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1008,7 +1032,8 @@ public partial class MainWindow : Window
             if (generation != _backdropRefreshGeneration ||
                 (ViewModel?.IsExpanded == true) != expanded ||
                 (!expanded && _collapsedMode != collapsedMode) ||
-                !IsLoaded)
+                !IsLoaded ||
+                _isClosed)
             {
                 return;
             }
@@ -1048,6 +1073,17 @@ public partial class MainWindow : Window
         }
         catch (OverflowException)
         {
+        }
+        catch (Exception exception)
+        {
+            var appDataDirectory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "CodexUsageWidget");
+            LocalDiagnosticLog.TryWrite(
+                appDataDirectory,
+                "backdrop-refresh",
+                exception);
         }
         finally
         {
@@ -1141,6 +1177,7 @@ public partial class MainWindow : Window
     private void ApplyWindowState(bool expanded)
     {
         var collapsedWidth = CurrentCollapsedWidth;
+        var collapsedHeight = CurrentCollapsedHeight;
         if (expanded &&
             Width <= collapsedWidth + 0.5 &&
             double.IsFinite(Left) &&
@@ -1151,7 +1188,7 @@ public partial class MainWindow : Window
         }
 
         var targetWidth = expanded ? ExpandedWidth : collapsedWidth;
-        var targetHeight = expanded ? ExpandedHeight : CollapsedHeight;
+        var targetHeight = expanded ? ExpandedHeight : collapsedHeight;
 
         var suppressLocationChanges = IsLoaded;
         if (suppressLocationChanges)
@@ -1179,7 +1216,7 @@ public partial class MainWindow : Window
                     targetTop = GetExpandedTop(
                         anchorTop,
                         workArea,
-                        CollapsedHeight);
+                        collapsedHeight);
                     _expandedAnchorOffsetX = anchorLeft - targetLeft.Value;
                     _expandedAnchorOffsetY = anchorTop - targetTop.Value;
                 }
@@ -1200,7 +1237,7 @@ public partial class MainWindow : Window
                         workArea.Top,
                         Math.Max(
                             workArea.Top,
-                            workArea.Bottom - CollapsedHeight));
+                            workArea.Bottom - collapsedHeight));
                     _collapsedAnchorLeft = targetLeft;
                     _collapsedAnchorTop = targetTop;
                 }
@@ -1309,6 +1346,8 @@ public partial class MainWindow : Window
 
     private void ShowExpandedVisual()
     {
+        GlowHost.Visibility = Visibility.Collapsed;
+        GlowHost.Opacity = 0;
         CollapsedHost.Visibility = Visibility.Collapsed;
         CollapsedHost.Opacity = 0;
         CapsuleHost.Visibility = Visibility.Collapsed;
@@ -1319,11 +1358,16 @@ public partial class MainWindow : Window
 
     private void ShowCollapsedVisual()
     {
+        var showGlow = _collapsedMode == CollapsedWidgetMode.Glow;
         var showCapsule = _collapsedMode == CollapsedWidgetMode.Capsule;
-        CollapsedHost.Visibility = showCapsule
+        GlowHost.Visibility = showGlow
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        GlowHost.Opacity = showGlow ? 1 : 0;
+        CollapsedHost.Visibility = showGlow || showCapsule
             ? Visibility.Collapsed
             : Visibility.Visible;
-        CollapsedHost.Opacity = showCapsule ? 0 : 1;
+        CollapsedHost.Opacity = showGlow || showCapsule ? 0 : 1;
         CapsuleHost.Visibility = showCapsule
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -1400,7 +1444,7 @@ public partial class MainWindow : Window
             workArea.Right - CurrentCollapsedWidth);
         var maximumTop = Math.Max(
             workArea.Top,
-            workArea.Bottom - CollapsedHeight);
+            workArea.Bottom - CurrentCollapsedHeight);
         var clampedLeft = Math.Clamp(
             anchorLeft,
             workArea.Left,
@@ -1449,7 +1493,7 @@ public partial class MainWindow : Window
         var anchorCenter = PointToScreen(
             new System.Windows.Point(
                 anchorLeft - Left + (CurrentCollapsedWidth / 2),
-                anchorTop - Top + (CollapsedHeight / 2)));
+                anchorTop - Top + (CurrentCollapsedHeight / 2)));
         var monitor = MonitorFromPoint(
             new NativePoint(
                 ClampToInt32(anchorCenter.X),
@@ -1518,6 +1562,7 @@ public partial class MainWindow : Window
 
     private void Window_OnClosed(object? sender, EventArgs e)
     {
+        _isClosed = true;
         CancelPendingCollapse();
         ++_backdropRefreshGeneration;
         CancelRunningBackdropRefresh();
@@ -1541,6 +1586,30 @@ public partial class MainWindow : Window
         Loaded -= MainWindow_OnLoaded;
         SourceInitialized -= MainWindow_OnSourceInitialized;
         DpiChanged -= MainWindow_OnDpiChanged;
+    }
+
+    private DispatcherOperation? TryBeginInvoke(
+        Action callback,
+        DispatcherPriority priority)
+    {
+        if (_isClosed ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Dispatcher.BeginInvoke(callback, priority);
+        }
+        catch (InvalidOperationException) when (
+            _isClosed ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return null;
+        }
     }
 
     private static LinearGradientBrush CreateGradientBrush(
@@ -1590,24 +1659,30 @@ public partial class MainWindow : Window
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetMonitorInfo(IntPtr monitorHandle, ref MonitorInfo monitorInfo);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPos(out NativePoint point);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int virtualKey);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr windowHandle, out NativeRect rectangle);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(

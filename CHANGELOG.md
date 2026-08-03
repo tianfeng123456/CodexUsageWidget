@@ -3,6 +3,75 @@
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [1.2.0] - 2026-08-03
+
+### 修复 / Fixed
+
+- 修复原生 SQLite 传递依赖命中高危安全公告的问题；显式固定到包含 SQLite
+  3.50.2 修复的 `SQLitePCLRaw.bundle_e_sqlite3 2.1.12`，升级测试工具链，并让
+  NuGet 的直接与传递依赖安全公告在后续构建中自动阻止已知漏洞回归。
+- Fixed a high-severity advisory in the transitive native SQLite dependency by
+  pinning `SQLitePCLRaw.bundle_e_sqlite3 2.1.12`, upgrading the test toolchain,
+  and making future direct or transitive NuGet advisories fail the build.
+- 修复退出、锁屏、休眠恢复或重复启动唤回恰好发生在 WPF Dispatcher 关闭期间时，
+  非关键 UI 通知可能反向中断索引或清理流程的竞态；后台任务异常现在统一观察并写入
+  本地轮转诊断日志。
+- Fixed a shutdown race where non-critical UI notifications from indexing,
+  power/session events, or duplicate-instance activation could interrupt
+  indexing or cleanup after the WPF Dispatcher began shutting down. Background
+  failures are now observed and recorded in a rotating local diagnostic log.
+- UI 审计脚本现在会在锁屏桌面提前停止；失败运行会恢复原截图与正式报告，并把
+  失败证据单独保存，避免把环境无效误写成产品回归。
+- The UI audit now stops before touching settings on a locked desktop and
+  restores prior evidence after a failed run instead of overwriting a valid
+  report with an environment-induced failure.
+
+- 修复主窗口隐藏后再次启动程序只提示“已在运行”、却无法找回窗口的问题；第二个
+  进程现在会唤回并置前已有实例，随后立即退出，不会重复启动后台监控。
+- Fixed the unreachable hidden-instance state. Launching the executable again
+  now restores and foregrounds the existing widget, then exits the duplicate
+  process without starting another monitor.
+- 修复一次性索引迁移可能被面板收起、标签切换或调用方取消停在半途的问题；
+  未完成的迁移会转交来源生命周期继续，重启后也会自动续建。
+- Fixed one-time index migration getting stranded after panel collapse, tab
+  changes, or caller cancellation. Incomplete work now continues under the
+  source lifecycle and resumes after restart.
+- 累计 Token 改为逐字段单调高水位增量，忽略并发日志中的轻微累计回落，避免一次
+  回落被放大成数亿 Token；文件截断或改写仍通过文件连续性校验触发完整重建。
+- Token accounting now uses per-field monotonic high-water deltas. Small
+  cumulative rollbacks from concurrent log snapshots no longer become large
+  phantom usage, while actual file replacement still triggers a clean reparse.
+- 旧索引在下一次明确统计刷新时一次性完整重算，并保存算法版本；普通启动、收起
+  静默态和后续增量刷新不增加固定轮询。
+- Existing indexes are rebuilt once on the next explicit statistics refresh
+  and persist the accounting version, without adding background polling.
+- 修复根级子代理分叉日志把父任务历史再次计入累计的问题。受影响的分叉会与来源任务
+  逐条比对累计 Token 序列，剔除最长复制前缀；即使触发标记也来自复制历史，
+  仍能准确保留分叉后的真实新增量。父任务尚未入库时会暂缓该分叉，避免写入错数。
+- Fixed root-level subagent fork rollouts replaying parent-task history into
+  lifetime totals. Affected forks now trim the longest matching cumulative-token prefix
+  against their source task, including copied trigger markers, and wait for the
+  parent index when needed instead of committing an unverified total.
+
+### 新增 / Added
+
+- 首次使用或索引升级时，空数据区会显示按已处理日志字节计算的真实进度、百分比
+  和本机处理说明；索引完成后会明确切换到时段汇总阶段，避免长时间读取被误认为
+  程序无响应。
+- First use and index upgrades now show determinate byte-based progress, a
+  percentage, and a local-processing note in the empty dashboard. After
+  indexing, the UI explicitly switches to the period-summary stage.
+- 待机样式新增 32×32“微光”：不显示数字，仅以静态光圈和状态色表达剩余额度；
+  设置选项按“微光、圆环、胶囊”排列，新安装仍默认圆环。
+- Added a 32×32 Glow idle style that communicates remaining quota with a
+  static halo and status color, without a number. Options are ordered Glow,
+  Circle, Capsule, while new installations still default to Circle.
+- 移除与实际桌面材质不一致的透明度模拟样片和实时预览文案；透明度在保存设置后应用。
+- Removed the misleading simulated transparency sample and live-preview copy;
+  transparency changes now apply after Save.
+
 ## [1.1.1] - 2026-07-20
 
 ### 修复 / Fixed

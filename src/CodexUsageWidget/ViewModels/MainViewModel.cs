@@ -24,6 +24,7 @@ public class MainViewModel : ObservableObject
     private bool _isIndexing;
     private bool _isBuildingHistory;
     private double _indexProgress;
+    private IndexProgressStage _indexProgressStage = IndexProgressStage.Idle;
     private double? _weeklyQuotaUsedPercent;
     private bool _isWeeklyQuotaOverlayOpen;
     private bool _isWeeklyQuotaLoading;
@@ -132,7 +133,7 @@ public class MainViewModel : ObservableObject
         get => _weeklyQuotaUsedPercent;
         set
         {
-            double? normalized = value is { } number
+            double? normalized = value is { } number && double.IsFinite(number)
                 ? Math.Clamp(number, 0, 100)
                 : null;
             if (SetProperty(ref _weeklyQuotaUsedPercent, normalized))
@@ -245,7 +246,7 @@ public class MainViewModel : ObservableObject
         {
             if (SetProperty(ref _isBuildingHistory, value))
             {
-                OnPropertyChanged(nameof(IndexStatusText));
+                NotifyIndexStatusChanged();
             }
         }
     }
@@ -255,19 +256,57 @@ public class MainViewModel : ObservableObject
         get => _indexProgress;
         set
         {
-            if (SetProperty(ref _indexProgress, Math.Clamp(value, 0, 1)))
+            var normalized = double.IsFinite(value)
+                ? Math.Clamp(value, 0, 1)
+                : 0d;
+            if (SetProperty(ref _indexProgress, normalized))
             {
                 OnPropertyChanged(nameof(IndexStatusText));
             }
         }
     }
 
+    public IndexProgressStage IndexProgressStage
+    {
+        get => _indexProgressStage;
+        set
+        {
+            if (SetProperty(ref _indexProgressStage, value))
+            {
+                NotifyIndexStatusChanged();
+            }
+        }
+    }
+
+    public bool IsIndexingNoticeVisible =>
+        IsBuildingHistory ||
+        IndexProgressStage == IndexProgressStage.Incomplete;
+
+    public bool IsIndexProgressVisible =>
+        IsBuildingHistory &&
+        IndexProgressStage is not IndexProgressStage.Idle;
+
     public string IndexStatusText =>
-        IsBuildingHistory
-            ? LocalizationService.Instance.Format(
+        IndexProgressStage switch
+        {
+            IndexProgressStage.Preparing =>
+                LocalizationService.Instance.Get("Loc.PreparingHistoryIndex"),
+            IndexProgressStage.Finalizing =>
+                LocalizationService.Instance.Get("Loc.FinalizingHistoryIndex"),
+            IndexProgressStage.Completed when IsBuildingHistory =>
+                LocalizationService.Instance.Get("Loc.HistoryIndexComplete"),
+            IndexProgressStage.Incomplete =>
+                LocalizationService.Instance.Get("Loc.HistoryIndexIncomplete"),
+            _ when IsBuildingHistory => LocalizationService.Instance.Format(
                 "Loc.BuildingHistoryFormat",
-                IndexProgress)
-            : string.Empty;
+                IndexProgress),
+            _ => string.Empty,
+        };
+
+    public string IndexStatusDetailText =>
+        IndexProgressStage == IndexProgressStage.Incomplete
+            ? LocalizationService.Instance.Get("Loc.HistoryIndexIncompleteHint")
+            : LocalizationService.Instance.Get("Loc.InitialIndexHint");
 
     public UsagePeriodViewModel? SelectedPeriod
     {
@@ -347,6 +386,7 @@ public class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(WeeklyQuotaUsedDisplay));
         OnPropertyChanged(nameof(WeeklyQuotaStatusText));
         OnPropertyChanged(nameof(IndexStatusText));
+        OnPropertyChanged(nameof(IndexStatusDetailText));
 
         foreach (var period in Periods)
         {
@@ -357,6 +397,14 @@ public class MainViewModel : ObservableObject
         {
             day.RefreshLocalization();
         }
+    }
+
+    private void NotifyIndexStatusChanged()
+    {
+        OnPropertyChanged(nameof(IndexStatusText));
+        OnPropertyChanged(nameof(IndexStatusDetailText));
+        OnPropertyChanged(nameof(IsIndexingNoticeVisible));
+        OnPropertyChanged(nameof(IsIndexProgressVisible));
     }
 
     private void NotifyCapsuleQuotaStatusChanged()

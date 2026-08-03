@@ -46,6 +46,7 @@ internal static class WindowMaterialHelper
         }
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int SetWindowRgn(
         IntPtr windowHandle,
