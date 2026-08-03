@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -6,11 +7,46 @@ namespace CodexUsageWidget.Core;
 
 public sealed class CodexLogParser
 {
-    public async Task<LogParseResult> ParseFileAsync(
+    private const int MaximumIdentifierCharacters = 512;
+    private const int MaximumTitleCharacters = 1024;
+    private const int MaximumRateLimitLabelCharacters = 256;
+
+    public Task<LogParseResult> ParseFileAsync(
         string path,
         string sourceKey,
         LogParseCheckpoint? checkpoint = null,
-        CancellationToken cancellationToken = default)
+        Action<long>? progressCallback = null,
+        CancellationToken cancellationToken = default) =>
+        ParseFileCoreAsync(
+            path,
+            sourceKey,
+            checkpoint,
+            replayCutoffOverride: null,
+            progressCallback,
+            cancellationToken);
+
+    public Task<LogParseResult> ParseForkFileAsync(
+        string path,
+        string sourceKey,
+        long replayCutoffOffset,
+        LogParseCheckpoint? checkpoint = null,
+        Action<long>? progressCallback = null,
+        CancellationToken cancellationToken = default) =>
+        ParseFileCoreAsync(
+            path,
+            sourceKey,
+            checkpoint,
+            replayCutoffOffset,
+            progressCallback,
+            cancellationToken);
+
+    private async Task<LogParseResult> ParseFileCoreAsync(
+        string path,
+        string sourceKey,
+        LogParseCheckpoint? checkpoint,
+        long? replayCutoffOverride,
+        Action<long>? progressCallback,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceKey);
@@ -18,10 +54,12 @@ public sealed class CodexLogParser
         var state = checkpoint ?? LogParseCheckpoint.Empty;
         var rootTaskId = state.RootTaskId;
         var ownSessionId = state.OwnSessionId;
-        var isChild = state.IsChildSession;
-        var previous = state.PreviousCumulative;
-        var replayBoundarySeen = state.ReplayBoundarySeen;
-        var firstReplayBoundaryOffset = state.FirstReplayBoundaryOffset;
+        var requiresReplayTrim = state.RequiresReplayTrim;
+        var highWater = state.HighWaterCumulative;
+        var replayBoundarySeen =
+            state.ReplayBoundarySeen || replayCutoffOverride.HasValue;
+        var firstReplayBoundaryOffset =
+            replayCutoffOverride ?? state.FirstReplayBoundaryOffset;
         var nextOffset = state.Offset;
         var malformed = 0;
         var truncatedLineSeen = false;
@@ -39,7 +77,8 @@ public sealed class CodexLogParser
                            stream,
                            state.Offset,
                            64 * 1024,
-                           cancellationToken))
+                           cancellationToken,
+                           progressCallback))
         {
             cancellationToken.ThrowIfCancellationRequested();
             truncatedLineSeen |= line.WasTruncated;
@@ -77,13 +116,15 @@ public sealed class CodexLogParser
                     var metadata = new SessionMetadata(
                         envelope.Id,
                         envelope.SessionId,
-                        envelope.ParentThreadId);
+                        envelope.ParentThreadId,
+                        envelope.ForkedFromId,
+                        envelope.ThreadSource);
 
                     if (string.IsNullOrWhiteSpace(rootTaskId))
                     {
                         rootTaskId = metadata.RootTaskId;
                         ownSessionId = metadata.Id;
-                        isChild = metadata.IsChildSession;
+                        requiresReplayTrim = metadata.RequiresReplayTrim;
                     }
 
                     nextOffset = line.EndOffset;
@@ -136,8 +177,10 @@ public sealed class CodexLogParser
                     continue;
                 }
 
-                var delta = TokenUsage.Delta(cumulative, previous);
-                previous = cumulative;
+                var delta = TokenUsage.DeltaAboveHighWater(
+                    cumulative,
+                    highWater);
+                highWater = TokenUsage.MergeHighWater(highWater, cumulative);
 
                 if (!delta.IsZero)
                 {
@@ -169,7 +212,7 @@ public sealed class CodexLogParser
             }
         }
 
-        if (isChild &&
+        if (requiresReplayTrim &&
             firstReplayBoundaryOffset is null &&
             truncatedLineSeen)
         {
@@ -186,12 +229,12 @@ public sealed class CodexLogParser
 
         IReadOnlyList<TokenUsageDelta> acceptedDeltas = deltas;
         IReadOnlyList<RateLimitSnapshotAtOffset> acceptedRateLimits = rateLimits;
-        if (isChild && firstReplayBoundaryOffset is long replayCutoff)
+        if (requiresReplayTrim && firstReplayBoundaryOffset is long replayCutoff)
         {
-            // A child rollout starts with a byte-for-byte replay of its root
-            // task. The first trigger-turn marker ends that copied prefix.
-            // Later markers start additional genuine child turns and must not
-            // discard the usage between them.
+            // Child and forked rollouts can start with copied history. For an
+            // ordinary child this is the first trigger marker; for an explicit
+            // fork the repository supplies the end of the matched parent
+            // prefix. Later genuine usage remains above the cutoff.
             acceptedDeltas = deltas
                 .Where(delta => delta.EventOffset > replayCutoff)
                 .ToArray();
@@ -205,8 +248,8 @@ public sealed class CodexLogParser
                 nextOffset,
                 rootTaskId,
                 ownSessionId,
-                isChild,
-                previous,
+                requiresReplayTrim,
+                highWater,
                 replayBoundarySeen,
                 firstReplayBoundaryOffset),
             acceptedDeltas,
@@ -215,10 +258,160 @@ public sealed class CodexLogParser
     }
 
     /// <summary>
+    /// Compares the cumulative token sequences in a fork and its source task
+    /// and returns the fork-file offset of their longest identical prefix.
+    /// A value of -1 means that no cumulative token row was copied.
+    /// </summary>
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "The parser is injected as one replaceable service dependency; keeping the public parsing surface instance-based preserves that contract.")]
+    public async Task<long> FindForkReplayPrefixEndOffsetAsync(
+        string forkPath,
+        string parentPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(forkPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(parentPath);
+
+        await using var fork = ReadCumulativeSamplesAsync(
+                forkPath,
+                cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        await using var parent = ReadCumulativeSamplesAsync(
+                parentPath,
+                cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+
+        long replayCutoff = -1;
+        while (await fork.MoveNextAsync() && await parent.MoveNextAsync())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (fork.Current.Usage != parent.Current.Usage)
+            {
+                break;
+            }
+
+            replayCutoff = fork.Current.EventOffset;
+        }
+
+        return replayCutoff;
+    }
+
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "The parser is injected as one replaceable service dependency; keeping the public parsing surface instance-based preserves that contract.")]
+    public async Task<SessionMetadata?> ReadInitialSessionMetadataAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        await using var stream = SharedFileAccess.OpenRead(path);
+        await foreach (var line in ReadLinesAsync(
+                           stream,
+                           0,
+                           1024 * 1024,
+                           cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (line.Bytes.Length == 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (TryReadEnvelope(line, out var envelope) &&
+                    string.Equals(
+                        envelope.OuterType,
+                        "session_meta",
+                        StringComparison.Ordinal))
+                {
+                    return new SessionMetadata(
+                        envelope.Id,
+                        envelope.SessionId,
+                        envelope.ParentThreadId,
+                        envelope.ForkedFromId,
+                        envelope.ThreadSource);
+                }
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+
+            // Rollout files place session_meta first. Do not turn a migration
+            // check into a scan of the complete history when that invariant is
+            // absent or the first row is malformed.
+            return null;
+        }
+
+        return null;
+    }
+
+    private static async IAsyncEnumerable<CumulativeTokenSample>
+        ReadCumulativeSamplesAsync(
+            string path,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await using var stream = SharedFileAccess.OpenRead(path);
+        await foreach (var line in ReadLinesAsync(
+                           stream,
+                           0,
+                           64 * 1024,
+                           cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (line.Bytes.Length == 0 || line.WasTruncated)
+            {
+                continue;
+            }
+
+            CumulativeTokenSample? sample = null;
+            try
+            {
+                if (!TryReadEnvelope(line, out var envelope))
+                {
+                    continue;
+                }
+
+                using var document = JsonDocument.Parse(line.Bytes);
+                if (!TryGetTokenPayload(
+                        document.RootElement,
+                        envelope.OuterType,
+                        out var tokenPayload) ||
+                    !TryReadCumulativeUsage(tokenPayload, out var cumulative))
+                {
+                    continue;
+                }
+
+                sample = new CumulativeTokenSample(
+                    line.StartOffset,
+                    cumulative);
+            }
+            catch (JsonException)
+            {
+                // A malformed row cannot be part of a verified copied prefix.
+            }
+
+            if (sample is { } parsed)
+            {
+                yield return parsed;
+            }
+        }
+    }
+
+    /// <summary>
     /// Finds the first child trigger-turn marker as a top-level JSONL envelope.
     /// Text that merely mentions the marker inside a response body or source
     /// snippet is intentionally ignored.
     /// </summary>
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "The parser is injected as one replaceable service dependency; keeping the public parsing surface instance-based preserves that contract.")]
     public async Task<long?> FindFirstReplayBoundaryOffsetAsync(
         string path,
         CancellationToken cancellationToken = default)
@@ -259,8 +452,13 @@ public sealed class CodexLogParser
         return null;
     }
 
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "The parser is injected as one replaceable service dependency; keeping the public parsing surface instance-based preserves that contract.")]
     public async Task<IReadOnlyList<SessionTitleEntry>> ParseSessionIndexAsync(
         string path,
+        Action<long>? progressCallback = null,
         CancellationToken cancellationToken = default)
     {
         var latest = new Dictionary<string, SessionTitleEntry>(
@@ -271,7 +469,8 @@ public sealed class CodexLogParser
                            stream,
                            0,
                            1024 * 1024,
-                           cancellationToken))
+                           cancellationToken,
+                           progressCallback))
         {
             if (line.WasTruncated)
             {
@@ -282,14 +481,14 @@ public sealed class CodexLogParser
             {
                 using var document = JsonDocument.Parse(line.Bytes);
                 var root = document.RootElement;
-                var id = FirstNonEmpty(
+                var id = NormalizeIdentifier(FirstNonEmpty(
                     GetString(root, "id"),
                     GetString(root, "thread_id"),
-                    GetString(root, "session_id"));
-                var title = FirstNonEmpty(
+                    GetString(root, "session_id")));
+                var title = NormalizeDisplayText(FirstNonEmpty(
                     GetString(root, "thread_name"),
                     GetString(root, "title"),
-                    GetString(root, "name"));
+                    GetString(root, "name")), MaximumTitleCharacters);
 
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
                 {
@@ -318,16 +517,17 @@ public sealed class CodexLogParser
     /// snapshot. Unrelated JSONL rows are rejected by their envelope before their
     /// JSON body is parsed.
     /// </summary>
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "The parser is injected as one replaceable service dependency; keeping the public parsing surface instance-based preserves that contract.")]
     public async Task<RateLimitSnapshot?> ParseLatestRateLimitFromTailAsync(
         string path,
         int maximumTailBytes = 512 * 1024,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (maximumTailBytes <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumTailBytes));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumTailBytes);
 
         await using var stream = SharedFileAccess.OpenRead(path);
         var length = stream.Length;
@@ -481,6 +681,8 @@ public sealed class CodexLogParser
         string? id = null;
         string? sessionId = null;
         string? parentThreadId = null;
+        string? forkedFromId = null;
+        string? threadSource = null;
 
         var propertyReader = new Utf8JsonReader(
             line.Bytes,
@@ -498,7 +700,14 @@ public sealed class CodexLogParser
             var isId = propertyReader.ValueTextEquals("id"u8);
             var isSessionId = propertyReader.ValueTextEquals("session_id"u8);
             var isParentId = propertyReader.ValueTextEquals("parent_thread_id"u8);
-            if (!isType && !isId && !isSessionId && !isParentId)
+            var isForkedFromId = propertyReader.ValueTextEquals("forked_from_id"u8);
+            var isThreadSource = propertyReader.ValueTextEquals("thread_source"u8);
+            if (!isType &&
+                !isId &&
+                !isSessionId &&
+                !isParentId &&
+                !isForkedFromId &&
+                !isThreadSource)
             {
                 continue;
             }
@@ -556,15 +765,25 @@ public sealed class CodexLogParser
             }
             else if (depth == 2 && isId)
             {
-                id = propertyReader.GetString();
+                id = NormalizeIdentifier(propertyReader.GetString());
             }
             else if (depth == 2 && isSessionId)
             {
-                sessionId = propertyReader.GetString();
+                sessionId = NormalizeIdentifier(propertyReader.GetString());
             }
             else if (depth == 2 && isParentId)
             {
-                parentThreadId = propertyReader.GetString();
+                parentThreadId = NormalizeIdentifier(propertyReader.GetString());
+            }
+            else if (depth == 2 && isForkedFromId)
+            {
+                forkedFromId = NormalizeIdentifier(propertyReader.GetString());
+            }
+            else if (depth == 2 && isThreadSource)
+            {
+                threadSource = NormalizeDisplayText(
+                    propertyReader.GetString(),
+                    MaximumRateLimitLabelCharacters);
             }
         }
 
@@ -584,7 +803,9 @@ public sealed class CodexLogParser
                 innerType,
                 id,
                 sessionId,
-                parentThreadId)
+                parentThreadId,
+                forkedFromId,
+                threadSource)
             : null!;
         return relevant;
     }
@@ -708,9 +929,15 @@ public sealed class CodexLogParser
 
         snapshot = new RateLimitSnapshot(
             timestamp,
-            GetString(limits, "limit_id"),
-            GetString(limits, "limit_name"),
-            GetString(limits, "plan_type"),
+            NormalizeDisplayText(
+                GetString(limits, "limit_id"),
+                MaximumRateLimitLabelCharacters),
+            NormalizeDisplayText(
+                GetString(limits, "limit_name"),
+                MaximumRateLimitLabelCharacters),
+            NormalizeDisplayText(
+                GetString(limits, "plan_type"),
+                MaximumRateLimitLabelCharacters),
             primary,
             secondary);
         return true;
@@ -722,7 +949,8 @@ public sealed class CodexLogParser
     {
         if (!limits.TryGetProperty(propertyName, out var window) ||
             window.ValueKind != JsonValueKind.Object ||
-            !TryGetDouble(window, "used_percent", out var usedPercent))
+            !TryGetDouble(window, "used_percent", out var usedPercent) ||
+            !double.IsFinite(usedPercent))
         {
             return null;
         }
@@ -752,7 +980,10 @@ public sealed class CodexLogParser
         {
             try
             {
-                return DateTimeOffset.FromUnixTimeSeconds(seconds);
+                var unixTimestamp = DateTimeOffset.FromUnixTimeSeconds(seconds);
+                return TimestampSafety.IsSupported(unixTimestamp)
+                    ? unixTimestamp
+                    : null;
             }
             catch (ArgumentOutOfRangeException)
             {
@@ -764,8 +995,10 @@ public sealed class CodexLogParser
             DateTimeOffset.TryParse(
                 element.GetString(),
                 System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AssumeUniversal,
-                out var parsed))
+                System.Globalization.DateTimeStyles.AssumeUniversal |
+                System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed) &&
+            TimestampSafety.IsSupported(parsed))
         {
             return parsed;
         }
@@ -792,11 +1025,12 @@ public sealed class CodexLogParser
         }
 
         return DateTimeOffset.TryParse(
-            value.GetString(),
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.AssumeUniversal |
-            System.Globalization.DateTimeStyles.AdjustToUniversal,
-            out var parsed)
+                   value.GetString(),
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.AssumeUniversal |
+                   System.Globalization.DateTimeStyles.AdjustToUniversal,
+                   out var parsed) &&
+               TimestampSafety.IsSupported(parsed)
             ? parsed
             : null;
     }
@@ -874,6 +1108,44 @@ public sealed class CodexLogParser
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
 
+    private static string? NormalizeIdentifier(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        return normalized.Length <= MaximumIdentifierCharacters
+            ? normalized
+            : null;
+    }
+
+    private static string? NormalizeDisplayText(string? value, int maximumCharacters)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        if (normalized.Length <= maximumCharacters)
+        {
+            return normalized;
+        }
+
+        var length = maximumCharacters;
+        if (length > 0 &&
+            char.IsHighSurrogate(normalized[length - 1]) &&
+            length < normalized.Length &&
+            char.IsLowSurrogate(normalized[length]))
+        {
+            length--;
+        }
+
+        return normalized[..length];
+    }
+
     internal static string? ExtractSessionIdFromFileName(string path)
     {
         var fileName = Path.GetFileNameWithoutExtension(path);
@@ -904,12 +1176,11 @@ public sealed class CodexLogParser
         FileStream stream,
         long offset,
         int maximumBufferedLineBytes,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        Action<long>? progressCallback = null)
     {
-        if (maximumBufferedLineBytes <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumBufferedLineBytes));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumBufferedLineBytes);
 
         stream.Seek(offset, SeekOrigin.Begin);
         var lineStart = offset;
@@ -975,6 +1246,12 @@ public sealed class CodexLogParser
                         ref wasTruncated);
                     absolutePosition += remaining;
                 }
+
+                // Report the durable byte position only after every line in
+                // this read block has been handed back to the parser. This
+                // keeps progress tied to completed parsing work and limits the
+                // callback rate to one update per 64 KiB read.
+                progressCallback?.Invoke(absolutePosition);
             }
 
             if (line.Length > 0)
@@ -1034,10 +1311,16 @@ public sealed class CodexLogParser
         bool IsTerminated,
         bool WasTruncated);
 
+    private readonly record struct CumulativeTokenSample(
+        long EventOffset,
+        TokenUsage Usage);
+
     private sealed record Envelope(
         string OuterType,
         string? InnerType,
         string? Id,
         string? SessionId,
-        string? ParentThreadId);
+        string? ParentThreadId,
+        string? ForkedFromId,
+        string? ThreadSource);
 }

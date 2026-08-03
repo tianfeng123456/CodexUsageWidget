@@ -18,13 +18,18 @@ public sealed class CodexLogParserTests
         string id,
         string expected)
     {
-        var metadata = new SessionMetadata(id, sessionId, parentId);
+        var metadata = new SessionMetadata(
+            id,
+            sessionId,
+            parentId,
+            null,
+            null);
 
         Assert.Equal(expected, metadata.RootTaskId);
     }
 
     [Fact]
-    public async Task ParseFile_ConvertsCumulativeUsageToDeltas_AndHandlesReset()
+    public async Task ParseFile_ConvertsCumulativeUsageToHighWaterDeltas()
     {
         using var temporary = new TemporaryDirectory();
         var path = temporary.GetPath(
@@ -43,23 +48,100 @@ public sealed class CodexLogParserTests
             path,
             UsageRepository.GetSourceKey(path));
 
-        Assert.Equal(3, result.Deltas.Count);
+        Assert.Equal(2, result.Deltas.Count);
         Assert.Equal(new TokenUsage(100, 40, 5, 10, 4), result.Deltas[0].Usage);
         Assert.Equal(new TokenUsage(50, 30, 4, 10, 4), result.Deltas[1].Usage);
-        Assert.Equal(new TokenUsage(20, 10, 2, 5, 1), result.Deltas[2].Usage);
-        Assert.Equal(195, result.Deltas.Sum(static item => item.Usage.TotalTokens));
+        Assert.Equal(170, result.Deltas.Sum(static item => item.Usage.TotalTokens));
+        Assert.Equal(
+            new TokenUsage(150, 70, 9, 20, 8),
+            result.Checkpoint.HighWaterCumulative);
         Assert.Equal(RootId, result.Checkpoint.RootTaskId);
     }
 
     [Fact]
-    public void TokenUsageDelta_HandlesIndependentCounterResets()
+    public async Task ParseFile_ReportsMonotonicCompletedByteProgress()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath(
+            $"rollout-progress-{RootId}.jsonl");
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.IrrelevantHugeLine(512 * 1024),
+            TestLog.TokenCount(
+                new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero),
+                100,
+                40,
+                5,
+                10,
+                4));
+        var length = new FileInfo(path).Length;
+        var positions = new List<long>();
+
+        await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path),
+            cancellationToken: CancellationToken.None,
+            progressCallback: positions.Add);
+
+        Assert.True(positions.Count >= 2);
+        Assert.Equal(length, positions[^1]);
+        Assert.All(positions, position => Assert.InRange(position, 1, length));
+        Assert.True(positions.SequenceEqual(positions.OrderBy(static value => value)));
+    }
+
+    [Fact]
+    public void TokenUsageHighWater_IgnoresIndependentCounterRegressions()
     {
         var previous = new TokenUsage(100, 80, 20, 50, 30);
         var current = new TokenUsage(120, 10, 25, 5, 2);
 
-        var delta = TokenUsage.Delta(current, previous);
+        var delta = TokenUsage.DeltaAboveHighWater(current, previous);
+        var highWater = TokenUsage.MergeHighWater(previous, current);
 
-        Assert.Equal(new TokenUsage(20, 10, 5, 5, 2), delta);
+        Assert.Equal(new TokenUsage(20, 0, 5, 0, 0), delta);
+        Assert.Equal(new TokenUsage(120, 80, 25, 50, 30), highWater);
+    }
+
+    [Fact]
+    public async Task ParseFile_SmallRollbackDoesNotCreateLargePhantomDelta()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-jitter-{RootId}.jsonl");
+        var start = new DateTimeOffset(2026, 7, 28, 4, 15, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(start, 603_764_545, 500_000_000, 0, 1_000, 100),
+            TestLog.TokenCount(
+                start.AddSeconds(1),
+                603_754_655,
+                499_999_000,
+                0,
+                999,
+                99),
+            TestLog.TokenCount(
+                start.AddSeconds(2),
+                603_800_000,
+                500_020_000,
+                0,
+                1_100,
+                110));
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        Assert.Equal(2, result.Deltas.Count);
+        Assert.Equal(
+            new TokenUsage(603_800_000, 500_020_000, 0, 1_100, 110),
+            result.Deltas.Aggregate(
+                TokenUsage.Zero,
+                static (sum, item) => sum + item.Usage));
+        Assert.Equal(
+            new TokenUsage(603_800_000, 500_020_000, 0, 1_100, 110),
+            result.Checkpoint.HighWaterCumulative);
     }
 
     [Fact]
@@ -107,6 +189,31 @@ public sealed class CodexLogParserTests
         Assert.Equal(23, only.Usage.TotalTokens);
         Assert.Empty(result.RateLimits);
         Assert.Equal(1, result.MalformedLineCount);
+    }
+
+    [Fact]
+    public async Task ParseFile_SkipsTimestampsTooCloseToDateTimeBoundaries()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-extreme-time-{RootId}.jsonl");
+        var validTimestamp =
+            new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(DateTimeOffset.MinValue.AddDays(1), 900, 0, 0, 1, 0),
+            TestLog.TokenCount(DateTimeOffset.MaxValue.AddDays(-1), 950, 0, 0, 2, 0),
+            TestLog.TokenCount(validTimestamp, 20, 10, 0, 3, 1));
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        var only = Assert.Single(result.Deltas);
+        Assert.Equal(validTimestamp, only.Timestamp);
+        Assert.Equal(23, only.Usage.TotalTokens);
+        Assert.Equal(2, result.MalformedLineCount);
     }
 
     [Fact]
@@ -158,7 +265,58 @@ public sealed class CodexLogParserTests
         Assert.Equal(70, rateLimit.RemainingPercent);
         Assert.True(result.Checkpoint.ReplayBoundarySeen);
         Assert.NotNull(result.Checkpoint.FirstReplayBoundaryOffset);
-        Assert.True(result.Checkpoint.IsChildSession);
+        Assert.True(result.Checkpoint.RequiresReplayTrim);
+    }
+
+    [Fact]
+    public async Task ParseFile_RootLikeSubagentForkDropsCopiedHistory()
+    {
+        using var temporary = new TemporaryDirectory();
+        const string forkId = "33333333-3333-3333-3333-333333333333";
+        var parentPath = temporary.GetPath($"rollout-parent-{RootId}.jsonl");
+        var path = temporary.GetPath($"rollout-root-fork-{forkId}.jsonl");
+        var start = new DateTimeOffset(2026, 7, 28, 20, 25, 39, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            parentPath,
+            TestLog.SessionMeta(RootId, RootId, timestamp: start),
+            TestLog.TokenCount(start.AddSeconds(1), 100, 80, 0, 10, 5),
+            // Trigger markers can themselves be part of the copied history.
+            TestLog.ReplayBoundary(start.AddSeconds(2)),
+            TestLog.TokenCount(start.AddSeconds(3), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(start.AddSeconds(4), 300, 240, 0, 30, 15));
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(
+                forkId,
+                forkId,
+                timestamp: start,
+                forkedFromId: RootId,
+                threadSource: "subagent"),
+            TestLog.TokenCount(start.AddSeconds(1), 100, 80, 0, 10, 5),
+            TestLog.ReplayBoundary(start.AddSeconds(2)),
+            TestLog.TokenCount(start.AddSeconds(3), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(start.AddSeconds(5), 250, 200, 0, 25, 12));
+
+        var parser = new CodexLogParser();
+        var metadata = await parser.ReadInitialSessionMetadataAsync(path);
+        var replayCutoff = await parser.FindForkReplayPrefixEndOffsetAsync(
+            path,
+            parentPath);
+        var result = await parser.ParseForkFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path),
+            replayCutoff);
+
+        Assert.NotNull(metadata);
+        Assert.True(metadata.HasForkedHistory);
+        Assert.True(metadata.IsRootLikeSubagentFork);
+        Assert.True(replayCutoff > 0);
+        Assert.Equal(RootId, metadata.RootTaskId);
+        Assert.True(result.Checkpoint.RequiresReplayTrim);
+        Assert.Equal(RootId, result.Checkpoint.RootTaskId);
+        var only = Assert.Single(result.Deltas);
+        Assert.Equal(new TokenUsage(50, 40, 0, 5, 2), only.Usage);
     }
 
     [Fact]
@@ -250,7 +408,7 @@ public sealed class CodexLogParserTests
 
         Assert.Equal(2, result.Deltas.Count);
         Assert.Equal(170, result.Deltas.Sum(delta => delta.Usage.TotalTokens));
-        Assert.False(result.Checkpoint.IsChildSession);
+        Assert.False(result.Checkpoint.RequiresReplayTrim);
     }
 
     [Fact]
@@ -303,6 +461,68 @@ public sealed class CodexLogParserTests
         var rate = Assert.Single(result.RateLimits).Snapshot;
         Assert.Equal(80, rate.RemainingPercent);
         Assert.Equal(10_080, rate.Primary?.WindowMinutes);
+    }
+
+    [Fact]
+    public async Task ParseFile_RejectsNonFiniteRateLimitPercentages()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-rate-nonfinite-{RootId}.jsonl");
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            """
+            {"timestamp":"2026-07-18T01:00:00.0000000+00:00","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":"NaN","window_minutes":10080},"secondary":{"used_percent":"Infinity","window_minutes":300}}}}
+            """);
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        Assert.Empty(result.RateLimits);
+    }
+
+    [Fact]
+    public async Task ParseFile_AcceptsStringWindowAndIsoResetTime()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-rate-string-{RootId}.jsonl");
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            """
+            {"timestamp":"2026-07-18T01:00:00Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":12.5,"window_minutes":"10080","resets_at":"2026-07-25T00:00:00Z"}}}}
+            """);
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        var window = Assert.Single(result.RateLimits).Snapshot.Primary;
+        Assert.NotNull(window);
+        Assert.Equal(10_080, window.WindowMinutes);
+        Assert.Equal(
+            new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero),
+            window.ResetsAt);
+    }
+
+    [Fact]
+    public async Task ParseFile_DropsOutOfRangeNumericResetTime()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath($"rollout-rate-reset-overflow-{RootId}.jsonl");
+        await TestLog.WriteLinesAsync(
+            path,
+            TestLog.SessionMeta(RootId, RootId),
+            """
+            {"timestamp":"2026-07-18T01:00:00Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":12.5,"window_minutes":10080,"resets_at":9223372036854775807}}}}
+            """);
+
+        var result = await new CodexLogParser().ParseFileAsync(
+            path,
+            UsageRepository.GetSourceKey(path));
+
+        Assert.Null(Assert.Single(result.RateLimits).Snapshot.Primary?.ResetsAt);
     }
 
     [Fact]
@@ -393,5 +613,60 @@ public sealed class CodexLogParserTests
         Assert.Equal(
             "新标题",
             entries.Single(entry => entry.RootTaskId == RootId).Title);
+    }
+
+    [Fact]
+    public async Task ParseSessionIndex_BoundsDamagedIdentifiersAndTitles()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath("session_index.jsonl");
+        var oversizedId = new string('i', 513);
+        var oversizedTitle = new string('题', 2048);
+        await TestLog.WriteLinesAsync(
+            path,
+            System.Text.Json.JsonSerializer.Serialize(
+                new { id = oversizedId, thread_name = "ignored" }),
+            System.Text.Json.JsonSerializer.Serialize(
+                new { id = RootId, thread_name = oversizedTitle }));
+
+        var entries = await new CodexLogParser().ParseSessionIndexAsync(path);
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(RootId, entry.RootTaskId);
+        Assert.Equal(1024, entry.Title.Length);
+    }
+
+    [Fact]
+    public async Task ParseFile_DropsOversizedMetadataIdentifier()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = temporary.GetPath("rollout-no-id.jsonl");
+        var oversizedId = new string('i', 513);
+        await TestLog.WriteLinesAsync(
+            path,
+            System.Text.Json.JsonSerializer.Serialize(
+                new
+                {
+                    type = "session_meta",
+                    payload = new
+                    {
+                        id = oversizedId,
+                        session_id = oversizedId,
+                    },
+                }),
+            TestLog.TokenCount(
+                new DateTimeOffset(2026, 7, 18, 1, 0, 0, TimeSpan.Zero),
+                100,
+                50,
+                0,
+                20,
+                5));
+
+        var sourceKey = UsageRepository.GetSourceKey(path);
+        var result = await new CodexLogParser().ParseFileAsync(path, sourceKey);
+
+        Assert.Null(result.Checkpoint.RootTaskId);
+        Assert.Null(result.Checkpoint.OwnSessionId);
+        Assert.Equal(sourceKey, Assert.Single(result.Deltas).RootTaskId);
     }
 }

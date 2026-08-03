@@ -319,7 +319,7 @@ function Save-WindowScreenshot {
 }
 
 function Set-IdleStyleSettings {
-    param([ValidateSet('Circle', 'Capsule')][string]$Mode)
+    param([ValidateSet('Glow', 'Circle', 'Capsule')][string]$Mode)
 
     $settings =
         Get-Content -LiteralPath $SettingsPath -Raw |
@@ -339,9 +339,11 @@ function Set-IdleStyleSettings {
             -NotePropertyName 'autoCollapse' `
             -NotePropertyValue $true `
             -Force
-    $settings |
-        ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $SettingsPath -Encoding utf8
+    $settingsJson = $settings | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $SettingsPath,
+        $settingsJson,
+        [Text.UTF8Encoding]::new($false))
 }
 
 if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
@@ -364,8 +366,9 @@ $fatalError = $null
 
 try {
     foreach ($style in @(
-            [ordered]@{ Mode = 'Circle'; Width = 80 },
-            [ordered]@{ Mode = 'Capsule'; Width = 208 })) {
+            [ordered]@{ Mode = 'Glow'; Width = 32; Height = 32 },
+            [ordered]@{ Mode = 'Circle'; Width = 80; Height = 80 },
+            [ordered]@{ Mode = 'Capsule'; Width = 208; Height = 80 })) {
         $process = $null
         try {
             Set-IdleStyleSettings -Mode $style.Mode
@@ -381,14 +384,14 @@ try {
             $collapsed = Wait-ForLogicalSize `
                 -WindowHandle $handle `
                 -Width $style.Width `
-                -Height 80 `
+                -Height $style.Height `
                 -TimeoutMilliseconds $StateTimeoutMilliseconds `
                 -Phase "$($style.Mode) startup"
             Start-Sleep -Milliseconds 400
             $collapsed = Wait-ForLogicalSize `
                 -WindowHandle $handle `
                 -Width $style.Width `
-                -Height 80 `
+                -Height $style.Height `
                 -TimeoutMilliseconds $StateTimeoutMilliseconds `
                 -Phase "$($style.Mode) settled startup"
 
@@ -423,7 +426,7 @@ try {
                 }
 
                 $isCollapsed =
-                    Test-LogicalSize $sample $style.Width 80
+                    Test-LogicalSize $sample $style.Width $style.Height
                 $isExpanded = Test-LogicalSize $sample 420 540
                 if (-not $isCollapsed -and -not $isExpanded) {
                     $intermediate.Add([ordered]@{
@@ -473,7 +476,7 @@ try {
             $recollapsed = Wait-ForLogicalSize `
                 -WindowHandle $handle `
                 -Width $style.Width `
-                -Height 80 `
+                -Height $style.Height `
                 -TimeoutMilliseconds $StateTimeoutMilliseconds `
                 -Phase "$($style.Mode) recollapse"
 
@@ -481,7 +484,7 @@ try {
                     mode = $style.Mode
                     status = 'PASS'
                     expectedCollapsedLogicalWidth = $style.Width
-                    expectedCollapsedLogicalHeight = 80
+                    expectedCollapsedLogicalHeight = $style.Height
                     collapsedLogicalWidth =
                         [Math]::Round($collapsed.LogicalWidth, 1)
                     collapsedLogicalHeight =
@@ -541,7 +544,7 @@ $passed = @($results | Where-Object { $_.status -eq 'PASS' }).Count
 $failed = @($results | Where-Object { $_.status -eq 'FAIL' }).Count
 $report = [ordered]@{
     capturedAt = [DateTimeOffset]::Now.ToString('O')
-    status = $(if ($failed -eq 0 -and $passed -eq 2) { 'PASS' } else { 'FAIL' })
+    status = $(if ($failed -eq 0 -and $passed -eq 3) { 'PASS' } else { 'FAIL' })
     executable = $Executable
     executableSha256 = (
         Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash
@@ -556,9 +559,11 @@ $report = [ordered]@{
     styles = @($results)
     originalSettingsRestored = $true
 }
-$report |
-    ConvertTo-Json -Depth 10 |
-    Set-Content -LiteralPath $OutputPath -Encoding utf8
+$reportJson = $report | ConvertTo-Json -Depth 10
+[IO.File]::WriteAllText(
+    $OutputPath,
+    $reportJson,
+    [Text.UTF8Encoding]::new($false))
 
 if ($null -ne $fatalError) {
     throw (

@@ -39,7 +39,7 @@ public static class BackdropBlur
         int passes = 1)
     {
         ValidateArguments(
-            source.Length,
+            source,
             width,
             height,
             stride,
@@ -76,7 +76,7 @@ public static class BackdropBlur
     }
 
     private static void ValidateArguments(
-        int sourceLength,
+        ReadOnlySpan<byte> source,
         int width,
         int height,
         int stride,
@@ -121,11 +121,11 @@ public static class BackdropBlur
         }
 
         requiredLength = checked(stride * height);
-        if (sourceLength < requiredLength)
+        if (source.Length < requiredLength)
         {
             throw new ArgumentException(
                 "The source buffer is smaller than stride * height.",
-                "source");
+                nameof(source));
         }
     }
 

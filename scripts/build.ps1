@@ -19,7 +19,7 @@ $env:DOTNET_NOLOGO = '1'
 
 New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
 
-& $dotnet restore $solution --configfile $config -p:NuGetAudit=false
+& $dotnet restore $solution --configfile $config
 if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
 
 if (-not $SkipTests) {
@@ -29,7 +29,12 @@ if (-not $SkipTests) {
 
 $resolvedProjectRoot = [IO.Path]::GetFullPath($projectRoot)
 $resolvedDist = [IO.Path]::GetFullPath($dist)
-if (-not $resolvedDist.StartsWith($resolvedProjectRoot, [StringComparison]::OrdinalIgnoreCase)) {
+$projectRootPrefix = $resolvedProjectRoot.TrimEnd(
+    [IO.Path]::DirectorySeparatorChar,
+    [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if (-not $resolvedDist.StartsWith(
+        $projectRootPrefix,
+        [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to clean unexpected publish path: $resolvedDist"
 }
 

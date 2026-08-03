@@ -1,4 +1,7 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CodexUsageWidget.Core;
 
@@ -21,11 +24,19 @@ public sealed record IndexedFileMetadata(
     long ProcessedOffset,
     long LastWriteUtcTicks,
     bool IsArchived,
-    bool NeedsReplayMigration = false);
+    bool NeedsReplayMigration = false,
+    bool NeedsTokenAccountingMigration = false,
+    bool NeedsForkReplayMigration = false);
 
 public sealed class UsageRepository
 {
+    private const int MaxPersistedFileKeyLength = 1_024;
+    private const int MaxPersistedPathLength = 32_768;
+    private const int MaximumTopTaskCount = 1_000;
+    private const int HighWaterTokenAccountingVersion = 2;
+    private const int CurrentTokenAccountingVersion = 4;
     private const int WeeklyRateLimitWindowMinutes = 10_080;
+    private const int MaximumWeeklyHistoryQueryDays = 366;
     private static readonly TimeSpan WeeklyResetTimestampTolerance =
         TimeSpan.FromSeconds(60);
 
@@ -83,6 +94,7 @@ public sealed class UsageRepository
                 previous_reasoning_output INTEGER NULL,
                 replay_boundary_seen INTEGER NOT NULL,
                 first_replay_boundary_offset INTEGER NULL,
+                token_accounting_version INTEGER NOT NULL DEFAULT 4,
                 checkpoint_hash TEXT NOT NULL,
                 is_archived INTEGER NOT NULL,
                 last_scan_utc TEXT NOT NULL
@@ -157,6 +169,9 @@ public sealed class UsageRepository
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureReplayBoundaryOffsetColumnAsync(connection, cancellationToken);
+        await EnsureTokenAccountingVersionColumnAsync(
+            connection,
+            cancellationToken);
         _initialized = true;
     }
 
@@ -168,44 +183,147 @@ public sealed class UsageRepository
 
         var result = new Dictionary<string, IndexedFileMetadata>(
             StringComparer.OrdinalIgnoreCase);
-        await using var connection = await OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                file_key,
-                path,
-                file_length,
-                processed_offset,
-                last_write_utc_ticks,
-                is_archived,
-                is_child,
-                replay_boundary_seen,
-                first_replay_boundary_offset
-            FROM file_state;
-            """;
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        var containsInvalidMetadata = false;
+        await using (var connection = await OpenConnectionAsync(cancellationToken))
+        await using (var command = connection.CreateCommand())
         {
-            var metadata = new IndexedFileMetadata(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetInt64(2),
-                reader.GetInt64(3),
-                reader.GetInt64(4),
-                reader.GetInt64(5) != 0,
-                reader.GetInt64(6) != 0 &&
-                reader.GetInt64(7) != 0 &&
-                reader.IsDBNull(8));
-            result[metadata.FileKey] = metadata;
+            command.CommandText =
+                """
+                SELECT
+                    file_key,
+                    path,
+                    file_length,
+                    processed_offset,
+                    last_write_utc_ticks,
+                    is_archived,
+                    is_child,
+                    replay_boundary_seen,
+                    first_replay_boundary_offset,
+                    token_accounting_version
+                FROM file_state;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(
+                cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (!TryReadIndexedFileMetadata(reader, out var metadata))
+                {
+                    containsInvalidMetadata = true;
+                    break;
+                }
+
+                result[metadata.FileKey] = metadata;
+            }
+        }
+
+        if (containsInvalidMetadata)
+        {
+            // file_state and all derived rows are a disposable cache. Keeping
+            // only part of a semantically damaged cache could double-count on
+            // the next refresh, so rebuild the complete derived index instead.
+            await ResetForTokenAccountingMigrationAsync(cancellationToken);
+            result.Clear();
         }
 
         return result;
     }
 
+    private static bool TryReadIndexedFileMetadata(
+        SqliteDataReader reader,
+        out IndexedFileMetadata metadata)
+    {
+        metadata = default!;
+        try
+        {
+            var fileKey = reader.GetString(0);
+            var path = reader.GetString(1);
+            var fileLength = reader.GetInt64(2);
+            var processedOffset = reader.GetInt64(3);
+            var lastWriteUtcTicks = reader.GetInt64(4);
+            var isArchived = reader.GetInt64(5);
+            var isChild = reader.GetInt64(6);
+            var replayBoundarySeen = reader.GetInt64(7);
+            long? firstReplayBoundaryOffset = reader.IsDBNull(8)
+                ? null
+                : reader.GetInt64(8);
+            var accountingVersionValue = reader.GetInt64(9);
+
+            if (string.IsNullOrWhiteSpace(fileKey) ||
+                fileKey.Length > MaxPersistedFileKeyLength ||
+                ContainsControlCharacter(fileKey) ||
+                string.IsNullOrWhiteSpace(path) ||
+                path.Length > MaxPersistedPathLength ||
+                ContainsControlCharacter(path) ||
+                !Path.IsPathFullyQualified(path) ||
+                !string.Equals(
+                    GetSourceKey(path),
+                    fileKey,
+                    StringComparison.OrdinalIgnoreCase) ||
+                fileLength < 0 ||
+                processedOffset < 0 ||
+                processedOffset > fileLength ||
+                lastWriteUtcTicks < DateTime.MinValue.Ticks ||
+                lastWriteUtcTicks > DateTime.MaxValue.Ticks ||
+                !IsSqliteBoolean(isArchived) ||
+                !IsSqliteBoolean(isChild) ||
+                !IsSqliteBoolean(replayBoundarySeen) ||
+                firstReplayBoundaryOffset is < 0 ||
+                firstReplayBoundaryOffset > processedOffset ||
+                accountingVersionValue < 0 ||
+                accountingVersionValue > int.MaxValue)
+            {
+                return false;
+            }
+
+            var accountingVersion = (int)accountingVersionValue;
+            metadata = new IndexedFileMetadata(
+                fileKey,
+                path,
+                fileLength,
+                processedOffset,
+                lastWriteUtcTicks,
+                isArchived != 0,
+                isChild != 0 &&
+                replayBoundarySeen != 0 &&
+                firstReplayBoundaryOffset is null,
+                accountingVersion < HighWaterTokenAccountingVersion,
+                accountingVersion >= HighWaterTokenAccountingVersion &&
+                accountingVersion < CurrentTokenAccountingVersion);
+            return true;
+        }
+        catch (InvalidCastException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSqliteBoolean(long value) => value is 0 or 1;
+
+    private static bool ContainsControlCharacter(string value)
+    {
+        foreach (var character in value)
+        {
+            if (char.IsControl(character))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public async Task<FileIndexResult> IndexFileAsync(
         string path,
         bool isArchived,
+        Action<long>? progressCallback = null,
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
@@ -219,9 +337,75 @@ public sealed class UsageRepository
 
         var sourceKey = GetSourceKey(path);
         await using var connection = await OpenConnectionAsync(cancellationToken);
-        var state = await LoadFileStateAsync(connection, sourceKey, cancellationToken);
         var wasReset = false;
+        FileState? state;
+        try
+        {
+            state = await LoadFileStateAsync(
+                connection,
+                sourceKey,
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or
+                InvalidCastException or
+                FormatException or
+                OverflowException)
+        {
+            // A semantically damaged per-file checkpoint cannot be resumed
+            // safely. Remove its derived contribution before parsing the raw
+            // log from byte zero, otherwise the next pass could double-count.
+            await ResetFileAsync(connection, sourceKey, cancellationToken);
+            state = null;
+            wasReset = true;
+        }
+
         long? legacyReplayBoundaryOffset = null;
+        long? exactForkReplayCutoff = null;
+        SessionMetadata? initialMetadata = null;
+
+        if (state is not null &&
+            state.TokenAccountingVersion < HighWaterTokenAccountingVersion)
+        {
+            // Version 1 treated every small cumulative-counter rollback as a
+            // reset and could add hundreds of millions of phantom tokens. A
+            // one-time full reparse of this file is the only reliable repair.
+            await ResetFileAsync(connection, sourceKey, cancellationToken);
+            state = null;
+            wasReset = true;
+        }
+
+        if (state is not null &&
+            state.TokenAccountingVersion < CurrentTokenAccountingVersion)
+        {
+            // Earlier high-water versions correctly handled cumulative-counter
+            // rollbacks and ordinary child replay. Explicit forks require an
+            // exact source-task comparison because markers can also be copied.
+            initialMetadata = await _parser.ReadInitialSessionMetadataAsync(
+                path,
+                cancellationToken);
+            if (initialMetadata is { IsRootLikeSubagentFork: true })
+            {
+                var parentPath = await FindIndexedFilePathBySessionIdAsync(
+                    connection,
+                    initialMetadata.ForkedFromId!,
+                    sourceKey,
+                    cancellationToken);
+                if (parentPath is null)
+                {
+                    return PendingReplayMigration(sourceKey, state, wasReset);
+                }
+
+                exactForkReplayCutoff =
+                    await _parser.FindForkReplayPrefixEndOffsetAsync(
+                        path,
+                        parentPath,
+                        cancellationToken);
+                await ResetFileAsync(connection, sourceKey, cancellationToken);
+                state = null;
+                wasReset = true;
+            }
+        }
 
         if (state is not null)
         {
@@ -250,7 +434,7 @@ public sealed class UsageRepository
 
         if (state is
             {
-                IsChild: true,
+                RequiresReplayTrim: true,
                 ReplayBoundarySeen: true,
                 FirstReplayBoundaryOffset: null
             })
@@ -270,16 +454,51 @@ public sealed class UsageRepository
             }
         }
 
+        if (state is null)
+        {
+            initialMetadata ??= await _parser.ReadInitialSessionMetadataAsync(
+                path,
+                cancellationToken);
+            if (initialMetadata is { IsRootLikeSubagentFork: true } &&
+                exactForkReplayCutoff is null)
+            {
+                var parentPath = await FindIndexedFilePathBySessionIdAsync(
+                    connection,
+                    initialMetadata.ForkedFromId!,
+                    sourceKey,
+                    cancellationToken);
+                if (parentPath is null)
+                {
+                    return PendingReplayMigration(sourceKey, state, wasReset);
+                }
+
+                exactForkReplayCutoff =
+                    await _parser.FindForkReplayPrefixEndOffsetAsync(
+                        path,
+                        parentPath,
+                        cancellationToken);
+            }
+        }
+
         var previousOffset = state?.ProcessedOffset ?? 0;
         var checkpoint = state?.ToCheckpoint() ?? LogParseCheckpoint.Empty;
-        var parseResult = await _parser.ParseFileAsync(
-            path,
-            sourceKey,
-            checkpoint,
-            cancellationToken);
+        var parseResult = exactForkReplayCutoff is long forkReplayCutoff
+            ? await _parser.ParseForkFileAsync(
+                path,
+                sourceKey,
+                forkReplayCutoff,
+                checkpoint,
+                progressCallback,
+                cancellationToken)
+            : await _parser.ParseFileAsync(
+                path,
+                sourceKey,
+                checkpoint,
+                progressCallback,
+                cancellationToken);
         var discoveredReplayPrefix =
             state is not null &&
-            parseResult.Checkpoint.IsChildSession &&
+            parseResult.Checkpoint.RequiresReplayTrim &&
             state.FirstReplayBoundaryOffset is null &&
             parseResult.Checkpoint.FirstReplayBoundaryOffset is not null;
 
@@ -378,7 +597,7 @@ public sealed class UsageRepository
             insertedEvents,
             parseResult.MalformedLineCount,
             wasReset,
-            parseResult.Checkpoint.IsChildSession &&
+            parseResult.Checkpoint.RequiresReplayTrim &&
             parseResult.Checkpoint.ReplayBoundarySeen &&
             parseResult.Checkpoint.FirstReplayBoundaryOffset is null);
     }
@@ -433,14 +652,15 @@ public sealed class UsageRepository
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
-        if (topTaskCount <= 0)
+        if (topTaskCount is <= 0 or > MaximumTopTaskCount)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(topTaskCount),
-                "前 N 项数量必须大于 0。");
+                $"前 N 项数量必须介于 1 和 {MaximumTopTaskCount} 之间。");
         }
 
         var referenceNow = now ?? DateTimeOffset.Now;
+        TimestampSafety.ThrowIfUnsupported(referenceNow, nameof(now));
         var localNow = TimeZoneInfo.ConvertTime(referenceNow, _timeZone);
         var today = DateOnly.FromDateTime(localNow.DateTime);
         var (fromDate, toDate) = GetDateRange(period, today);
@@ -462,10 +682,10 @@ public sealed class UsageRepository
 
             command.Parameters.AddWithValue(
                 "$from",
-                fromDate.Value.ToString("yyyy-MM-dd"));
+                fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue(
                 "$to",
-                toDate.Value.ToString("yyyy-MM-dd"));
+                toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue(
                 "$start_utc",
                 windowStartUtc.UtcDateTime.ToString("O"));
@@ -511,13 +731,17 @@ public sealed class UsageRepository
         else if (fromDate is not null)
         {
             predicates.Add("u.local_date >= $from");
-            command.Parameters.AddWithValue("$from", fromDate.Value.ToString("yyyy-MM-dd"));
+            command.Parameters.AddWithValue(
+                "$from",
+                fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         }
 
         if (period != UsagePeriod.Last7Days && toDate is not null)
         {
             predicates.Add("u.local_date <= $to");
-            command.Parameters.AddWithValue("$to", toDate.Value.ToString("yyyy-MM-dd"));
+            command.Parameters.AddWithValue(
+                "$to",
+                toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         }
 
         command.Parameters.AddWithValue("$top_count", topTaskCount);
@@ -687,6 +911,12 @@ public sealed class UsageRepository
             CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
+        TimestampSafety.ThrowIfUnsupported(
+            fromInclusive,
+            nameof(fromInclusive));
+        TimestampSafety.ThrowIfUnsupported(
+            toExclusive,
+            nameof(toExclusive));
         var fromUtc = fromInclusive.ToUniversalTime();
         var toUtc = toExclusive.ToUniversalTime();
         if (toUtc <= fromUtc)
@@ -694,6 +924,13 @@ public sealed class UsageRepository
             throw new ArgumentOutOfRangeException(
                 nameof(toExclusive),
                 "结束时间必须晚于开始时间。");
+        }
+
+        if (toUtc - fromUtc > TimeSpan.FromDays(MaximumWeeklyHistoryQueryDays))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(toExclusive),
+                $"周额度历史查询最多支持 {MaximumWeeklyHistoryQueryDays} 天。");
         }
 
         var firstDate = ToLocalDate(fromUtc);
@@ -849,11 +1086,6 @@ public sealed class UsageRepository
                 if (days.ContainsKey(localDate))
                 {
                     observationDate = localDate;
-                    // The final valid observation of each local day is the
-                    // same authority used by the headline quota. Because the
-                    // SQL stream is globally ordered, the last assignment
-                    // wins without a second per-day query.
-                    authoritativeTimelineByDate[localDate] = timeline;
                 }
             }
 
@@ -911,6 +1143,14 @@ public sealed class UsageRepository
             {
                 timelineDay.ObservationCount++;
             }
+
+            // Choose authority only after the observation has passed the
+            // timeline high-water checks above. Otherwise a chronologically
+            // later stale rollback from an overlapping schedule could replace
+            // the day's final valid timeline even though the row itself was
+            // rejected. Because the SQL stream is globally ordered, the last
+            // accepted assignment wins without a second per-day query.
+            authoritativeTimelineByDate[acceptedDate] = timeline;
         }
 
         foreach (var day in days.Values)
@@ -1089,7 +1329,8 @@ public sealed class UsageRepository
             System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.AssumeUniversal |
             System.Globalization.DateTimeStyles.AdjustToUniversal,
-            out timestamp);
+            out timestamp) &&
+        TimestampSafety.IsSupported(timestamp);
 
     public async Task MarkRefreshCompleteAsync(
         DateTimeOffset completedAt,
@@ -1131,7 +1372,60 @@ public sealed class UsageRepository
             ) THEN 1 ELSE 0 END;
             """;
         return Convert.ToInt64(
-            await command.ExecuteScalarAsync(cancellationToken)) != 0;
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture) != 0;
+    }
+
+    /// <summary>
+    /// Ensures that persisted local-date aggregates were produced with the
+    /// same time zone used by this repository. A changed zone invalidates the
+    /// derived index and is repaired by a later normal refresh. Legacy indexes
+    /// without the marker are checked against their stored event dates once.
+    /// </summary>
+    /// <returns><see langword="true"/> when derived index data was reset.</returns>
+    public async Task<bool> EnsureTimeZoneCompatibilityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        const string metadataKey = "aggregation_time_zone_signature_v1";
+        var timeZoneSignature = GetTimeZoneSignature(_timeZone);
+        string? storedTimeZoneSignature;
+        await using (var connection = await OpenConnectionAsync(cancellationToken))
+        {
+            await using var readMarker = connection.CreateCommand();
+            readMarker.CommandText =
+                "SELECT value FROM metadata WHERE key = $key LIMIT 1;";
+            readMarker.Parameters.AddWithValue("$key", metadataKey);
+            storedTimeZoneSignature =
+                await readMarker.ExecuteScalarAsync(cancellationToken) as string;
+        }
+
+        var requiresReset = storedTimeZoneSignature is not null
+            ? !string.Equals(
+                storedTimeZoneSignature,
+                timeZoneSignature,
+                StringComparison.Ordinal)
+            : !await LegacyEventDatesMatchTimeZoneAsync(cancellationToken);
+        if (requiresReset)
+        {
+            await ResetForTokenAccountingMigrationAsync(cancellationToken);
+        }
+
+        await using (var connection = await OpenConnectionAsync(cancellationToken))
+        await using (var writeMarker = connection.CreateCommand())
+        {
+            writeMarker.CommandText =
+                """
+                INSERT INTO metadata(key, value)
+                VALUES($key, $value)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+                """;
+            writeMarker.Parameters.AddWithValue("$key", metadataKey);
+            writeMarker.Parameters.AddWithValue("$value", timeZoneSignature);
+            await writeMarker.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return requiresReset;
     }
 
     public async Task ResetAsync(CancellationToken cancellationToken = default)
@@ -1158,6 +1452,110 @@ public sealed class UsageRepository
         transaction.Commit();
     }
 
+    private async Task<bool> LegacyEventDatesMatchTimeZoneAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT timestamp_utc, local_date FROM token_events;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!TryParseUtcTimestamp(reader.GetString(0), out var timestamp) ||
+                !string.Equals(
+                    reader.GetString(1),
+                    ToLocalDate(timestamp).ToString(
+                        "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string GetTimeZoneSignature(TimeZoneInfo timeZone)
+    {
+        var builder = new StringBuilder();
+        builder.Append(timeZone.Id)
+            .Append('|')
+            .Append(timeZone.BaseUtcOffset.Ticks.ToString(CultureInfo.InvariantCulture))
+            .Append('|')
+            .Append(timeZone.SupportsDaylightSavingTime ? '1' : '0');
+        foreach (var rule in timeZone.GetAdjustmentRules())
+        {
+            builder.Append('|')
+                .Append(rule.DateStart.ToString("yyyyMMdd", CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(rule.DateEnd.ToString("yyyyMMdd", CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(rule.DaylightDelta.Ticks.ToString(CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(rule.BaseUtcOffsetDelta.Ticks.ToString(CultureInfo.InvariantCulture));
+            AppendTransitionSignature(builder, rule.DaylightTransitionStart);
+            AppendTransitionSignature(builder, rule.DaylightTransitionEnd);
+        }
+
+        return "sha256:" + Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
+    private static void AppendTransitionSignature(
+        StringBuilder builder,
+        TimeZoneInfo.TransitionTime transition)
+    {
+        builder.Append(':')
+            .Append(transition.IsFixedDateRule ? '1' : '0')
+            .Append(',')
+            .Append(transition.Month.ToString(CultureInfo.InvariantCulture))
+            .Append(',')
+            .Append(transition.Day.ToString(CultureInfo.InvariantCulture))
+            .Append(',')
+            .Append(transition.Week.ToString(CultureInfo.InvariantCulture))
+            .Append(',')
+            .Append(((int)transition.DayOfWeek).ToString(CultureInfo.InvariantCulture))
+            .Append(',')
+            .Append(transition.TimeOfDay.TimeOfDay.Ticks.ToString(CultureInfo.InvariantCulture));
+    }
+
+    public async Task ResetForTokenAccountingMigrationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        foreach (var table in new[]
+                 {
+                     "token_events",
+                     "daily_task_usage",
+                     "rate_limit_events",
+                     "file_state"
+                 })
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = $"DELETE FROM {table};";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var clearCompletion = connection.CreateCommand())
+        {
+            clearCompletion.Transaction = transaction;
+            clearCompletion.CommandText =
+                """
+                DELETE FROM metadata
+                WHERE key IN ('initial_index_complete', 'last_refresh_utc');
+                """;
+            await clearCompletion.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
+    }
+
     public async Task<long> GetIndexedOffsetAsync(
         string path,
         CancellationToken cancellationToken = default)
@@ -1178,18 +1576,29 @@ public sealed class UsageRepository
         CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await connection.OpenAsync(cancellationToken);
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            PRAGMA foreign_keys = ON;
-            PRAGMA journal_mode = WAL;
-            PRAGMA synchronous = NORMAL;
-            PRAGMA busy_timeout = 5000;
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        return connection;
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                PRAGMA foreign_keys = ON;
+                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = NORMAL;
+                PRAGMA busy_timeout = 5000;
+                """;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            return connection;
+        }
+        catch
+        {
+            // The caller cannot own a connection that was never returned.
+            // Dispose it here so a failed PRAGMA (including corruption) does
+            // not leak a pooled handle or keep the database file locked.
+            await connection.DisposeAsync();
+            throw;
+        }
     }
 
     private static async Task EnsureReplayBoundaryOffsetColumnAsync(
@@ -1228,6 +1637,42 @@ public sealed class UsageRepository
         await alter.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task EnsureTokenAccountingVersionColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var exists = false;
+        await using (var inspect = connection.CreateCommand())
+        {
+            inspect.CommandText = "PRAGMA table_info(file_state);";
+            await using var reader = await inspect.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        "token_accounting_version",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText =
+            """
+            ALTER TABLE file_state
+            ADD COLUMN token_accounting_version INTEGER NOT NULL DEFAULT 1;
+            """;
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task DeleteReplayPrefixAndRecalculateDailyUsageAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -1244,7 +1689,7 @@ public sealed class UsageRepository
                 SELECT DISTINCT local_date, root_task_id
                 FROM token_events
                 WHERE file_key = $key
-                  AND event_offset < $offset;
+                  AND event_offset <= $offset;
                 """;
             select.Parameters.AddWithValue("$key", sourceKey);
             select.Parameters.AddWithValue("$offset", replayBoundaryOffset);
@@ -1264,7 +1709,7 @@ public sealed class UsageRepository
             delete.Transaction = transaction;
             delete.CommandText =
                 $"DELETE FROM {table} " +
-                "WHERE file_key = $key AND event_offset < $offset;";
+                "WHERE file_key = $key AND event_offset <= $offset;";
             delete.Parameters.AddWithValue("$key", sourceKey);
             delete.Parameters.AddWithValue("$offset", replayBoundaryOffset);
             await delete.ExecuteNonQueryAsync(cancellationToken);
@@ -1353,6 +1798,7 @@ public sealed class UsageRepository
                 previous_reasoning_output,
                 replay_boundary_seen,
                 first_replay_boundary_offset,
+                token_accounting_version,
                 checkpoint_hash,
                 is_archived
             FROM file_state
@@ -1366,31 +1812,141 @@ public sealed class UsageRepository
             return null;
         }
 
-        TokenUsage? previous = null;
-        if (!reader.IsDBNull(7))
-        {
-            previous = new TokenUsage(
+        var path = reader.GetString(0);
+        var fileLength = reader.GetInt64(1);
+        var processedOffset = reader.GetInt64(2);
+        var lastWriteUtcTicks = reader.GetInt64(3);
+        var rootTaskId = reader.IsDBNull(4) ? null : reader.GetString(4);
+        var ownSessionId = reader.IsDBNull(5) ? null : reader.GetString(5);
+        var isChild = reader.GetInt64(6);
+        var hasPreviousInput = !reader.IsDBNull(7);
+        var hasCompleteHighWater = Enumerable.Range(7, 5)
+            .All(index => reader.IsDBNull(index) == !hasPreviousInput);
+        TokenUsage? highWater = hasPreviousInput
+            ? new TokenUsage(
                 reader.GetInt64(7),
                 reader.GetInt64(8),
                 reader.GetInt64(9),
                 reader.GetInt64(10),
-                reader.GetInt64(11));
+                reader.GetInt64(11))
+            : null;
+        var replayBoundarySeen = reader.GetInt64(12);
+        long? firstReplayBoundaryOffset = reader.IsDBNull(13)
+            ? null
+            : reader.GetInt64(13);
+        var accountingVersionValue = reader.GetInt64(14);
+        var checkpointHash = reader.GetString(15);
+        var isArchived = reader.GetInt64(16);
+
+        if (string.IsNullOrWhiteSpace(path) ||
+            path.Length > MaxPersistedPathLength ||
+            ContainsControlCharacter(path) ||
+            !Path.IsPathFullyQualified(path) ||
+            !string.Equals(
+                GetSourceKey(path),
+                sourceKey,
+                StringComparison.OrdinalIgnoreCase) ||
+            fileLength < 0 ||
+            processedOffset < 0 ||
+            processedOffset > fileLength ||
+            lastWriteUtcTicks < DateTime.MinValue.Ticks ||
+            lastWriteUtcTicks > DateTime.MaxValue.Ticks ||
+            !IsBoundedOptionalIdentifier(rootTaskId) ||
+            !IsBoundedOptionalIdentifier(ownSessionId) ||
+            !IsSqliteBoolean(isChild) ||
+            !hasCompleteHighWater ||
+            highWater is { } persistedHighWater &&
+            !IsValidPersistedHighWater(persistedHighWater) ||
+            !IsSqliteBoolean(replayBoundarySeen) ||
+            firstReplayBoundaryOffset is < 0 ||
+            firstReplayBoundaryOffset > processedOffset ||
+            replayBoundarySeen == 0 && firstReplayBoundaryOffset is not null ||
+            accountingVersionValue < 0 ||
+            accountingVersionValue > int.MaxValue ||
+            checkpointHash.Length > 128 ||
+            ContainsControlCharacter(checkpointHash) ||
+            !IsSqliteBoolean(isArchived))
+        {
+            throw new InvalidDataException(
+                "索引数据库包含语义无效的文件检查点。");
         }
 
         return new FileState(
             sourceKey,
-            reader.GetString(0),
-            reader.GetInt64(1),
-            reader.GetInt64(2),
-            reader.GetInt64(3),
-            reader.IsDBNull(4) ? null : reader.GetString(4),
-            reader.IsDBNull(5) ? null : reader.GetString(5),
-            reader.GetInt64(6) != 0,
-            previous,
-            reader.GetInt64(12) != 0,
-            reader.IsDBNull(13) ? null : reader.GetInt64(13),
-            reader.GetString(14),
-            reader.GetInt64(15) != 0);
+            path,
+            fileLength,
+            processedOffset,
+            lastWriteUtcTicks,
+            rootTaskId,
+            ownSessionId,
+            isChild != 0,
+            highWater,
+            replayBoundarySeen != 0,
+            firstReplayBoundaryOffset,
+            (int)accountingVersionValue,
+            checkpointHash,
+            isArchived != 0);
+    }
+
+    private static bool IsBoundedOptionalIdentifier(string? value) =>
+        value is null ||
+        value.Length <= 512 && !ContainsControlCharacter(value);
+
+    private static bool IsValidPersistedHighWater(TokenUsage usage) =>
+        usage.InputTokens >= 0 &&
+        usage.CachedInputTokens >= 0 &&
+        usage.CacheWriteInputTokens >= 0 &&
+        usage.OutputTokens >= 0 &&
+        usage.ReasoningOutputTokens >= 0 &&
+        usage.CachedInputTokens <= usage.InputTokens &&
+        usage.CacheWriteInputTokens <= usage.InputTokens &&
+        usage.ReasoningOutputTokens <= usage.OutputTokens;
+
+    private static async Task<string?> FindIndexedFilePathBySessionIdAsync(
+        SqliteConnection connection,
+        string sessionId,
+        string excludedSourceKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT path
+            FROM file_state
+            WHERE own_session_id = $session_id COLLATE NOCASE
+              AND file_key <> $excluded_key
+            ORDER BY is_archived ASC, last_write_utc_ticks DESC;
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+        command.Parameters.AddWithValue("$excluded_key", excludedSourceKey);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var candidate = reader.GetString(0);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static FileIndexResult PendingReplayMigration(
+        string sourceKey,
+        FileState? state,
+        bool wasReset)
+    {
+        var offset = state?.ProcessedOffset ?? 0;
+        return new FileIndexResult(
+            sourceKey,
+            offset,
+            offset,
+            InsertedEvents: 0,
+            MalformedLines: 0,
+            WasReset: wasReset,
+            NeedsReplayMigration: true);
     }
 
     private static async Task UpsertFileStateAsync(
@@ -1425,6 +1981,7 @@ public sealed class UsageRepository
                 previous_reasoning_output,
                 replay_boundary_seen,
                 first_replay_boundary_offset,
+                token_accounting_version,
                 checkpoint_hash,
                 is_archived,
                 last_scan_utc)
@@ -1444,6 +2001,7 @@ public sealed class UsageRepository
                 $previous_reasoning,
                 $boundary,
                 $boundary_offset,
+                $accounting_version,
                 $hash,
                 $archived,
                 $scan_time)
@@ -1462,6 +2020,7 @@ public sealed class UsageRepository
                 previous_reasoning_output = excluded.previous_reasoning_output,
                 replay_boundary_seen = excluded.replay_boundary_seen,
                 first_replay_boundary_offset = excluded.first_replay_boundary_offset,
+                token_accounting_version = excluded.token_accounting_version,
                 checkpoint_hash = excluded.checkpoint_hash,
                 is_archived = excluded.is_archived,
                 last_scan_utc = excluded.last_scan_utc;
@@ -1478,8 +2037,10 @@ public sealed class UsageRepository
         command.Parameters.AddWithValue(
             "$own_id",
             (object?)checkpoint.OwnSessionId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$is_child", checkpoint.IsChildSession ? 1 : 0);
-        AddNullableUsageParameters(command, checkpoint.PreviousCumulative);
+        command.Parameters.AddWithValue(
+            "$is_child",
+            checkpoint.RequiresReplayTrim ? 1 : 0);
+        AddNullableUsageParameters(command, checkpoint.HighWaterCumulative);
         command.Parameters.AddWithValue(
             "$boundary",
             checkpoint.ReplayBoundarySeen ? 1 : 0);
@@ -1488,6 +2049,9 @@ public sealed class UsageRepository
             checkpoint.FirstReplayBoundaryOffset is null
                 ? DBNull.Value
                 : checkpoint.FirstReplayBoundaryOffset.Value);
+        command.Parameters.AddWithValue(
+            "$accounting_version",
+            CurrentTokenAccountingVersion);
         command.Parameters.AddWithValue("$hash", checkpointHash);
         command.Parameters.AddWithValue("$archived", isArchived ? 1 : 0);
         command.Parameters.AddWithValue(
@@ -1556,7 +2120,9 @@ public sealed class UsageRepository
         command.Parameters.AddWithValue(
             "$timestamp",
             delta.Timestamp.UtcDateTime.ToString("O"));
-        command.Parameters.AddWithValue("$date", localDate.ToString("yyyy-MM-dd"));
+        command.Parameters.AddWithValue(
+            "$date",
+            localDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$root_id", delta.RootTaskId);
         AddUsageParameters(command, delta.Usage);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -1597,7 +2163,9 @@ public sealed class UsageRepository
                 output_tokens = output_tokens + excluded.output_tokens,
                 reasoning_output_tokens = reasoning_output_tokens + excluded.reasoning_output_tokens;
             """;
-        command.Parameters.AddWithValue("$date", localDate.ToString("yyyy-MM-dd"));
+        command.Parameters.AddWithValue(
+            "$date",
+            localDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$root_id", rootTaskId);
         AddUsageParameters(command, usage);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1862,8 +2430,14 @@ public sealed class UsageRepository
             reset = parsed;
         }
 
+        var usedPercent = reader.GetDouble(usedOrdinal);
+        if (!double.IsFinite(usedPercent))
+        {
+            return null;
+        }
+
         return new RateLimitWindowSnapshot(
-            reader.GetDouble(usedOrdinal),
+            Math.Clamp(usedPercent, 0d, 100d),
             reader.IsDBNull(windowOrdinal) ? null : reader.GetInt32(windowOrdinal),
             reset);
     }
@@ -1945,9 +2519,15 @@ public sealed class UsageRepository
             resetsAt = parsedReset;
         }
 
+        var usedPercent = reader.GetDouble(1);
+        if (!double.IsFinite(usedPercent))
+        {
+            return false;
+        }
+
         observation = new WeeklyRateLimitObservation(
             timestamp,
-            Math.Clamp(reader.GetDouble(1), 0d, 100d),
+            Math.Clamp(usedPercent, 0d, 100d),
             resetsAt);
         return true;
     }
@@ -2276,10 +2856,11 @@ public sealed class UsageRepository
         long LastWriteUtcTicks,
         string? RootTaskId,
         string? OwnSessionId,
-        bool IsChild,
-        TokenUsage? Previous,
+        bool RequiresReplayTrim,
+        TokenUsage? HighWater,
         bool ReplayBoundarySeen,
         long? FirstReplayBoundaryOffset,
+        int TokenAccountingVersion,
         string CheckpointHash,
         bool IsArchived)
     {
@@ -2287,8 +2868,8 @@ public sealed class UsageRepository
             ProcessedOffset,
             RootTaskId,
             OwnSessionId,
-            IsChild,
-            Previous,
+            RequiresReplayTrim,
+            HighWater,
             ReplayBoundarySeen,
             FirstReplayBoundaryOffset);
     }

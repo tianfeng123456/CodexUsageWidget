@@ -11,6 +11,7 @@ public enum AppThemeMode
 
 public enum CollapsedWidgetMode
 {
+    Glow,
     Circle,
     Capsule,
 }
@@ -21,15 +22,19 @@ public static class CollapsedWidgetModePolicy
     {
         return value?.Trim().ToLowerInvariant() switch
         {
+            "glow" => CollapsedWidgetMode.Glow,
             "capsule" => CollapsedWidgetMode.Capsule,
             _ => CollapsedWidgetMode.Circle,
         };
     }
 
     public static string ToSettingValue(CollapsedWidgetMode mode) =>
-        mode == CollapsedWidgetMode.Capsule
-            ? nameof(CollapsedWidgetMode.Capsule)
-            : nameof(CollapsedWidgetMode.Circle);
+        mode switch
+        {
+            CollapsedWidgetMode.Glow => nameof(CollapsedWidgetMode.Glow),
+            CollapsedWidgetMode.Capsule => nameof(CollapsedWidgetMode.Capsule),
+            _ => nameof(CollapsedWidgetMode.Circle),
+        };
 }
 
 public sealed class AppSettings

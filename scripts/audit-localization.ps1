@@ -546,9 +546,11 @@ try {
             -NotePropertyName 'collapsedMode' `
             -NotePropertyValue 'Circle' `
             -Force
-    $settings |
-        ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $SettingsPath -Encoding utf8
+    $settingsJson = $settings | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $SettingsPath,
+        $settingsJson,
+        [Text.UTF8Encoding]::new($false))
 
     $process = Start-Process -FilePath $Executable -PassThru
     $mainWindow = Wait-ForApplicationWindowByElementId `
@@ -676,8 +678,10 @@ finally {
 if ($completed) {
     $outputDirectory = Split-Path -Parent $OutputPath
     [IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
-    $result |
-        ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $OutputPath -Encoding utf8
+    $resultJson = $result | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $OutputPath,
+        $resultJson,
+        [Text.UTF8Encoding]::new($false))
     Write-Host "Localization UI audit passed: $OutputPath"
 }

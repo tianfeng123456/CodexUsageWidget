@@ -100,6 +100,7 @@ public sealed class ReplayBoundaryMigrationTests
         Assert.Equal(123, legacy.FileLength);
         Assert.Equal(123, legacy.ProcessedOffset);
         Assert.True(legacy.NeedsReplayMigration);
+        Assert.True(legacy.NeedsTokenAccountingMigration);
 
         await using var verify = new SqliteConnection(
             new SqliteConnectionStringBuilder

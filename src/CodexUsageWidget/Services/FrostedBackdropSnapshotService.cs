@@ -136,6 +136,7 @@ internal static class FrostedBackdropSnapshotService
         }
 
         DrawingBitmap? capturedBitmap = null;
+        var captureCompleted = false;
         try
         {
             // Wait for DWM to honor the temporary capture exclusion so the
@@ -157,19 +158,23 @@ internal static class FrostedBackdropSnapshotService
                     captureRect.Height),
                 CopyPixelOperation.SourceCopy);
             cancellationToken.ThrowIfCancellationRequested();
+            captureCompleted = true;
         }
         catch (ArgumentException)
         {
-            capturedBitmap?.Dispose();
             return null;
         }
         catch (ExternalException)
         {
-            capturedBitmap?.Dispose();
             return null;
         }
         finally
         {
+            if (!captureCompleted)
+            {
+                capturedBitmap?.Dispose();
+            }
+
             _ = SetWindowDisplayAffinity(
                 windowHandle,
                 hasOriginalAffinity ? originalAffinity : WdaNone);
@@ -249,21 +254,33 @@ internal static class FrostedBackdropSnapshotService
             width,
             height,
             DrawingPixelFormat.Format32bppArgb);
-        using var graphics = DrawingGraphics.FromImage(result);
-        graphics.CompositingMode = CompositingMode.SourceCopy;
-        graphics.CompositingQuality = CompositingQuality.HighQuality;
-        graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.SmoothingMode = SmoothingMode.None;
-        graphics.DrawImage(
-            source,
-            new System.Drawing.Rectangle(0, 0, width, height),
-            0,
-            0,
-            source.Width,
-            source.Height,
-            GraphicsUnit.Pixel);
-        return result;
+        var completed = false;
+        try
+        {
+            using var graphics = DrawingGraphics.FromImage(result);
+            graphics.CompositingMode = CompositingMode.SourceCopy;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.SmoothingMode = SmoothingMode.None;
+            graphics.DrawImage(
+                source,
+                new System.Drawing.Rectangle(0, 0, width, height),
+                0,
+                0,
+                source.Width,
+                source.Height,
+                GraphicsUnit.Pixel);
+            completed = true;
+            return result;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                result.Dispose();
+            }
+        }
     }
 
     private static BackdropSnapshot ReadPixels(DrawingBitmap bitmap)
@@ -367,30 +384,36 @@ internal static class FrostedBackdropSnapshotService
         }
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(
         IntPtr windowHandle,
         out NativeRect rect);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowDisplayAffinity(
         IntPtr windowHandle,
         uint affinity);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowDisplayAffinity(
         IntPtr windowHandle,
         out uint affinity);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetDpiForWindow(IntPtr windowHandle);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmFlush();
 

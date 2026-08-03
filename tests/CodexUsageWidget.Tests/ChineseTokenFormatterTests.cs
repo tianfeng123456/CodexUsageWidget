@@ -35,6 +35,7 @@ public sealed class ChineseTokenFormatterTests
     {
         Assert.Equal(
             expected,
-            ChineseTokenFormatter.Format(decimal.Parse(value)));
+            ChineseTokenFormatter.Format(
+                decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture)));
     }
 }

@@ -1,22 +1,64 @@
 {
-    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
-    "sha256":  "464788E9EBF28F85DD2312B548DB6780CB8083C2C915166C54E0278E0886757D",
-    "executableBytes":  163927535,
-    "startedAt":  "2026-07-19T03:03:12.1778670+08:00",
-    "completedAt":  "2026-07-19T03:04:18.2304150+08:00",
+    "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
+    "sha256":  "DD99C1A2179626C03ABF082A371D96C6A478B25DF64B6212786253D2CD37A2F4",
+    "executableBytes":  164493889,
+    "startedAt":  "2026-08-02T12:31:29.0514038+08:00",
+    "completedAt":  "2026-08-02T12:32:34.7430975+08:00",
     "warmupSeconds":  12,
-    "observationSeconds":  65.028,
+    "indexStabilitySeconds":  5,
+    "observationSeconds":  65.018,
+    "primeWeeklyQuotaOverlay":  false,
+    "primeFromPinnedStartup":  false,
+    "collapsedMode":  "Circle",
+    "expectedCollapsedLogicalWidth":  80,
+    "expectedCollapsedLogicalHeight":  80,
+    "automationTimeoutMilliseconds":  8000,
+    "weeklyQuotaPriming":  {
+                               "requested":  false,
+                               "performed":  false
+                           },
+    "windowLogicalWidth":  80,
+    "windowLogicalHeight":  80,
+    "windowDpi":  192,
+    "startWindowLogicalWidth":  80,
+    "startWindowLogicalHeight":  80,
+    "startWindowDpi":  192,
+    "collapsedAtObservationStart":  true,
+    "endWindowLogicalWidth":  80,
+    "endWindowLogicalHeight":  80,
+    "endWindowDpi":  192,
+    "collapsedAtObservationEnd":  true,
+    "warmupDatabaseChanges":  [
+                                  {
+                                      "path":  "C:\\Users\\13720\\AppData\\Local\\CodexUsageWidget\\usage-index-40DDBE5E8629148EC764981E53F3E9001673A65E3829C2161E940EC81B5EC4B1.db-shm",
+                                      "before":  {
+                                                     "length":  32768,
+                                                     "lastWriteTimeUtc":  "2026-08-02T04:30:34.8611312Z"
+                                                 },
+                                      "after":  {
+                                                    "length":  32768,
+                                                    "lastWriteTimeUtc":  "2026-08-02T04:31:12.7104529Z"
+                                                }
+                                  }
+                              ],
+    "stabilityDatabaseChanges":  [
+
+                                 ],
     "processorCount":  16,
-    "cpuDeltaSeconds":  0.96875,
-    "singleCoreCpuPercent":  1.4897,
-    "wholeMachineCpuPercent":  0.0931,
-    "privateMemoryBytes":  86355968,
-    "workingSetBytes":  176398336,
-    "peakPrivateMemoryBytes":  89231360,
-    "peakWorkingSetBytes":  179085312,
+    "cpuDeltaSeconds":  0.046875,
+    "singleCoreCpuPercent":  0.0721,
+    "wholeMachineCpuPercent":  0.0045,
+    "privateMemoryBytes":  81551360,
+    "workingSetBytes":  172126208,
+    "peakPrivateMemoryBytes":  84054016,
+    "peakWorkingSetBytes":  174764032,
     "databaseFileCount":  3,
     "databaseChanges":  [
 
                         ],
-    "databaseWritesObserved":  false
+    "databaseWritesObserved":  false,
+    "validationPassed":  true,
+    "validationFailures":  [
+
+                           ]
 }

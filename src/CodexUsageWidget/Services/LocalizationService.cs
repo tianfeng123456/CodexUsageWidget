@@ -20,7 +20,7 @@ public sealed class LocalizationService
 
     private readonly CultureInfo systemUiCulture =
         CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentUICulture.Clone());
-    private IReadOnlyDictionary<string, string> strings =
+    private ReadOnlyDictionary<string, string> strings =
         new ReadOnlyDictionary<string, string>(
             new Dictionary<string, string>(StringComparer.Ordinal));
     private ResourceDictionary? activeLanguageDictionary;

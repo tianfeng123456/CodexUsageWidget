@@ -1,17 +1,44 @@
-{
-    "capturedAt":  "2026-07-19T22:51:24.0739853+08:00",
+﻿{
+    "capturedAt":  "2026-08-01T19:14:24.1471748+08:00",
     "status":  "PASS",
-    "executable":  "%PROJECT_ROOT%\\dist\\CodexUsageWidget.exe",
-    "executableSha256":  "A2FB25D6C5CE204A5D3B2AD0A53575C163B7D399A19FCB1F39BE5E6F40124027",
-    "executableBytes":  164086767,
+    "executable":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\dist\\CodexUsageWidget.exe",
+    "executableSha256":  "5B0B9517A5C1105A7ECE8452030EA54B3611DAD859B98B2A1B8FE21C2A458180",
+    "executableBytes":  164144623,
     "expectedExpandedLogicalWidth":  420,
     "expectedExpandedLogicalHeight":  540,
     "sampleIntervalMilliseconds":  10,
     "counts":  {
-                   "pass":  2,
+                   "pass":  3,
                    "fail":  0
                },
     "styles":  [
+                   {
+                       "mode":  "Glow",
+                       "status":  "PASS",
+                       "expectedCollapsedLogicalWidth":  32,
+                       "expectedCollapsedLogicalHeight":  32,
+                       "collapsedLogicalWidth":  32,
+                       "collapsedLogicalHeight":  32,
+                       "expandedLogicalWidth":  420,
+                       "expandedLogicalHeight":  540,
+                       "recollapsedLogicalWidth":  32,
+                       "recollapsedLogicalHeight":  32,
+                       "dpi":  192,
+                       "hoverToExpandedMilliseconds":  243,
+                       "observedTopLevelSizes":  [
+                                                     {
+                                                         "elapsedMilliseconds":  236,
+                                                         "logicalWidth":  420,
+                                                         "logicalHeight":  540
+                                                     }
+                                                 ],
+                       "intermediateTopLevelSizes":  [
+
+                                                     ],
+                       "directExpansion":  true,
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-glow-collapsed.png",
+                       "expandedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-glow-expanded.png"
+                   },
                    {
                        "mode":  "Circle",
                        "status":  "PASS",
@@ -24,15 +51,10 @@
                        "recollapsedLogicalWidth":  80,
                        "recollapsedLogicalHeight":  80,
                        "dpi":  192,
-                       "hoverToExpandedMilliseconds":  229,
+                       "hoverToExpandedMilliseconds":  189,
                        "observedTopLevelSizes":  [
                                                      {
-                                                         "elapsedMilliseconds":  206,
-                                                         "logicalWidth":  80,
-                                                         "logicalHeight":  80
-                                                     },
-                                                     {
-                                                         "elapsedMilliseconds":  227,
+                                                         "elapsedMilliseconds":  188,
                                                          "logicalWidth":  420,
                                                          "logicalHeight":  540
                                                      }
@@ -41,8 +63,8 @@
 
                                                      ],
                        "directExpansion":  true,
-                       "collapsedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\idle-circle-collapsed.png",
-                       "expandedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\idle-circle-expanded.png"
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-circle-collapsed.png",
+                       "expandedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-circle-expanded.png"
                    },
                    {
                        "mode":  "Capsule",
@@ -56,10 +78,10 @@
                        "recollapsedLogicalWidth":  208,
                        "recollapsedLogicalHeight":  80,
                        "dpi":  192,
-                       "hoverToExpandedMilliseconds":  185,
+                       "hoverToExpandedMilliseconds":  195,
                        "observedTopLevelSizes":  [
                                                      {
-                                                         "elapsedMilliseconds":  185,
+                                                         "elapsedMilliseconds":  194,
                                                          "logicalWidth":  420,
                                                          "logicalHeight":  540
                                                      }
@@ -68,8 +90,8 @@
 
                                                      ],
                        "directExpansion":  true,
-                       "collapsedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\idle-capsule-collapsed.png",
-                       "expandedScreenshot":  "%PROJECT_ROOT%\\docs\\screenshots\\idle-capsule-expanded.png"
+                       "collapsedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-capsule-collapsed.png",
+                       "expandedScreenshot":  "C:\\Users\\13720\\Documents\\简单问题\\CodexUsageWidget\\docs\\screenshots\\idle-capsule-expanded.png"
                    }
                ],
     "originalSettingsRestored":  true

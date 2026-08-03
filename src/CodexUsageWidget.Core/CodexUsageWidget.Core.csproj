@@ -8,6 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.21" />
+    <!-- Microsoft.Data.Sqlite 8.0.21 permits newer 2.x native bundles. Pin a
+         SQLite 3.50.2+ build so CVE-2025-6965 cannot be reintroduced by the
+         older transitive floor during restore. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

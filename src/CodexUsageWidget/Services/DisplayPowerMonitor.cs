@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using Microsoft.Win32.SafeHandles;
 
 namespace CodexUsageWidget.Services;
 
@@ -32,7 +33,7 @@ internal sealed class DisplayPowerMonitor : IDisposable
 
     private readonly Window window;
     private HwndSource? source;
-    private IntPtr notificationHandle;
+    private PowerSettingNotificationHandle? notificationHandle;
     private bool disposed;
     private SessionDisplayState state = SessionDisplayState.On;
 
@@ -83,19 +84,21 @@ internal sealed class DisplayPowerMonitor : IDisposable
         source = HwndSource.FromHwnd(handle);
         source?.AddHook(WindowProc);
         var setting = SessionDisplayStatus;
-        notificationHandle = RegisterPowerSettingNotification(
+        var registeredHandle = RegisterPowerSettingNotification(
             handle,
             ref setting,
             DeviceNotifyWindowHandle);
+        if (registeredHandle != IntPtr.Zero)
+        {
+            notificationHandle =
+                new PowerSettingNotificationHandle(registeredHandle);
+        }
     }
 
     private void Detach()
     {
-        if (notificationHandle != IntPtr.Zero)
-        {
-            _ = UnregisterPowerSettingNotification(notificationHandle);
-            notificationHandle = IntPtr.Zero;
-        }
+        notificationHandle?.Dispose();
+        notificationHandle = null;
 
         source?.RemoveHook(WindowProc);
         source = null;
@@ -151,14 +154,29 @@ internal sealed class DisplayPowerMonitor : IDisposable
         public uint DataLength;
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr RegisterPowerSettingNotification(
         IntPtr recipient,
         ref Guid powerSettingGuid,
         uint flags);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool UnregisterPowerSettingNotification(
         IntPtr handle);
+
+    private sealed class PowerSettingNotificationHandle
+        : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        public PowerSettingNotificationHandle(IntPtr registeredHandle)
+            : base(ownsHandle: true)
+        {
+            SetHandle(registeredHandle);
+        }
+
+        protected override bool ReleaseHandle() =>
+            UnregisterPowerSettingNotification(handle);
+    }
 }

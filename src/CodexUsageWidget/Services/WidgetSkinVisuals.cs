@@ -191,7 +191,7 @@ internal sealed record WidgetSkinVisuals(
             SummaryValueFontSize: 17,
             ContentInset: 20);
 
-    private static IReadOnlyDictionary<string, string> Palette(
+    private static Dictionary<string, string> Palette(
         string primary,
         string secondary,
         string muted,

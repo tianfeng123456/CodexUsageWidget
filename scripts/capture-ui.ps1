@@ -82,6 +82,9 @@ public static class CodexWidgetUiAuditNative
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hwnd);
 
     [DllImport("user32.dll")]
@@ -113,6 +116,23 @@ public static class CodexWidgetUiAuditNative
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenInputDesktop(
+        uint flags,
+        bool inherit,
+        uint desiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseDesktop(IntPtr desktop);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetUserObjectInformation(
+        IntPtr handle,
+        int index,
+        StringBuilder value,
+        int valueBytes,
+        out int requiredBytes);
 
     [DllImport("user32.dll")]
     private static extern void mouse_event(
@@ -217,12 +237,88 @@ public static class CodexWidgetUiAuditNative
     {
         mouse_event(0x0001, 0, 0, 0, UIntPtr.Zero);
     }
+
+    public static string GetInputDesktopName()
+    {
+        const uint DesktopReadObjects = 0x0001;
+        const int UoiName = 2;
+        IntPtr desktop = OpenInputDesktop(
+            0,
+            false,
+            DesktopReadObjects);
+        if (desktop == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            StringBuilder name = new StringBuilder(256);
+            int requiredBytes;
+            return GetUserObjectInformation(
+                desktop,
+                UoiName,
+                name,
+                name.Capacity * sizeof(char),
+                out requiredBytes)
+                ? name.ToString()
+                : null;
+        }
+        finally
+        {
+            CloseDesktop(desktop);
+        }
+    }
+
+    public static int GetForegroundProcessId()
+    {
+        IntPtr foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        uint processId;
+        GetWindowThreadProcessId(foreground, out processId);
+        return unchecked((int)processId);
+    }
 }
 '@
 }
 
 [CodexWidgetUiAuditNative]::EnablePerMonitorDpiAwareness()
 Add-Type -AssemblyName System.Windows.Forms
+
+$inputDesktopName = [CodexWidgetUiAuditNative]::GetInputDesktopName()
+if (-not [string]::Equals(
+        $inputDesktopName,
+        'Default',
+        [StringComparison]::OrdinalIgnoreCase)) {
+    $displayDesktopName = if (
+        [string]::IsNullOrWhiteSpace($inputDesktopName)) {
+        '<unavailable>'
+    }
+    else {
+        $inputDesktopName
+    }
+    throw (
+        'UI audit requires the unlocked interactive Default desktop. ' +
+        'Current input desktop: ' + $displayDesktopName)
+}
+
+$foregroundProcessId =
+    [CodexWidgetUiAuditNative]::GetForegroundProcessId()
+if ($foregroundProcessId -gt 0) {
+    $foregroundProcess = Get-Process `
+        -Id $foregroundProcessId `
+        -ErrorAction SilentlyContinue
+    if ($null -ne $foregroundProcess -and
+        $foregroundProcess.ProcessName -in @('LockApp', 'LogonUI')) {
+        throw (
+            'UI audit requires an unlocked interactive session. ' +
+            'Foreground process: ' + $foregroundProcess.ProcessName)
+    }
+}
 
 $script:Results = New-Object System.Collections.ArrayList
 $script:Screenshots = [ordered]@{}
@@ -233,6 +329,13 @@ $script:MainHandle = [IntPtr]::Zero
 $script:OutputDirectory = $OutputDirectory
 $script:StartedAt = [DateTimeOffset]::Now
 $script:AbortReason = $null
+$script:AuditSucceeded = $false
+$script:OriginalOutputFiles = @{}
+Get-ChildItem -LiteralPath $OutputDirectory -File -ErrorAction Stop |
+    ForEach-Object {
+        $script:OriginalOutputFiles[$_.FullName] =
+            [IO.File]::ReadAllBytes($_.FullName)
+    }
 
 $requiredCases = @(
     'executable-and-process',
@@ -965,6 +1068,14 @@ function Get-MatchingExistingProcess {
 }
 
 $script:OriginalSettingsBytes = $null
+if ($LeaveRunning -and $TargetProcessId -eq 0) {
+    throw (
+        '-LeaveRunning is only safe with -TargetProcessId. A process started ' +
+        'by this audit holds the temporary baseline settings in memory and ' +
+        'could overwrite the restored user settings later.')
+}
+
+try {
 if ($TargetProcessId -eq 0) {
     $existingBeforeAudit =
         Get-MatchingExistingProcess -ExecutablePath $Executable
@@ -997,9 +1108,11 @@ if ($TargetProcessId -eq 0) {
             -NotePropertyName 'autoCollapse' `
             -NotePropertyValue $true `
             -Force
-    $baselineSettings |
-        ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $SettingsPath -Encoding utf8
+    $baselineJson = $baselineSettings | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $SettingsPath,
+        $baselineJson,
+        [Text.UTF8Encoding]::new($false))
 }
 
 $prerequisiteOk = Invoke-AuditCase -Name 'executable-and-process' -Action {
@@ -1125,12 +1238,19 @@ if ($null -eq $script:AbortReason) {
 
 if ($null -eq $script:AbortReason) {
     $expandedOk = Invoke-AuditCase -Name 'hover-expanded-420x540' -Action {
+        $beforeHover = Get-WindowRecord `
+            -Process $script:AuditProcess `
+            -Handle $script:MainHandle
+        Assert-AuditCondition `
+            ($null -ne $beforeHover) `
+            'The main window disappeared before hover expansion.'
+        Move-PointerOutsideWindow -Window $beforeHover
         $collapsed = Wait-ForLogicalWindowSize `
             -Process $script:AuditProcess `
             -Handle $script:MainHandle `
             -ExpectedWidth 80 `
             -ExpectedHeight 80 `
-            -TimeoutMilliseconds 1000
+            -TimeoutMilliseconds $StateTimeoutMilliseconds
         Assert-AuditCondition ($null -ne $collapsed) 'The widget is not collapsed.'
 
         $centerX = [int](($collapsed.Bounds.Left + $collapsed.Bounds.Right) / 2)
@@ -1765,6 +1885,13 @@ if ($null -eq $script:AbortReason) {
             ($transparencySlider.Current.ControlType -eq [System.Windows.Automation.ControlType]::Slider) `
             'The accessible glass transparency element is not a Slider.'
 
+        $rangeValuePattern = $transparencySlider.GetCurrentPattern(
+            [System.Windows.Automation.RangeValuePattern]::Pattern)
+        Assert-AuditCondition `
+            ($rangeValuePattern.Current.Minimum -eq 0 -and
+                $rangeValuePattern.Current.Maximum -eq 100) `
+            'The glass transparency slider did not expose the 0-100 range.'
+
         $languageCondition =
             New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::
@@ -1807,7 +1934,7 @@ if ($null -eq $script:AbortReason) {
         Assert-AuditCondition `
             ($null -ne $main) `
             'The main widget disappeared when settings closed.'
-        return ('opened at {0}, single glass surface plus stable theme/transparency/language selectors verified, closed successfully; screenshot={1}' -f
+        return ('opened at {0}, theme/transparency/language selectors verified, closed successfully; screenshot={1}' -f
             $settingsDescription,
             $path)
     }
@@ -1871,26 +1998,55 @@ else {
     Add-MissingCasesAsSkipped -Reason 'A required case was not executed.'
 }
 
-if ($null -ne $script:AuditProcess -and
-    $script:OwnsProcess -and
-    -not $LeaveRunning) {
-    try {
-        $script:AuditProcess.Refresh()
-        if (-not $script:AuditProcess.HasExited) {
-            Stop-Process -Id $script:AuditProcess.Id -Force
-            $script:AuditProcess.WaitForExit(5000) | Out-Null
+$script:AuditSucceeded =
+    @($script:Results | Where-Object { $_.status -eq 'FAIL' }).Count -eq 0 -and
+    @($script:Results | Where-Object { $_.status -eq 'SKIP' }).Count -eq 0
+
+}
+finally {
+    if ($null -ne $script:AuditProcess -and
+        $script:OwnsProcess -and
+        -not $LeaveRunning) {
+        try {
+            $script:AuditProcess.Refresh()
+            if (-not $script:AuditProcess.HasExited) {
+                Stop-Process -Id $script:AuditProcess.Id -Force
+                $script:AuditProcess.WaitForExit(5000) | Out-Null
+            }
+        }
+        catch {
+            Write-Warning ('Could not stop the audit-owned process: {0}' -f
+                $_.Exception.Message)
         }
     }
-    catch {
-        Write-Warning ('Could not stop the audit-owned process: {0}' -f
-            $_.Exception.Message)
-    }
-}
 
-if ($null -ne $script:OriginalSettingsBytes) {
-    [IO.File]::WriteAllBytes(
-        $SettingsPath,
-        $script:OriginalSettingsBytes)
+    if ($null -ne $script:OriginalSettingsBytes) {
+        [IO.File]::WriteAllBytes(
+            $SettingsPath,
+            $script:OriginalSettingsBytes)
+    }
+
+    if (-not $script:AuditSucceeded) {
+        try {
+            Get-ChildItem -LiteralPath $OutputDirectory -File |
+                Where-Object {
+                    -not $script:OriginalOutputFiles.ContainsKey(
+                        $_.FullName)
+                } |
+                ForEach-Object {
+                    Remove-Item -LiteralPath $_.FullName -Force
+                }
+            foreach ($entry in $script:OriginalOutputFiles.GetEnumerator()) {
+                [IO.File]::WriteAllBytes(
+                    [string]$entry.Key,
+                    [byte[]]$entry.Value)
+            }
+        }
+        catch {
+            Write-Warning ('Could not restore prior UI evidence: {0}' -f
+                $_.Exception.Message)
+        }
+    }
 }
 
 $passCount = @($script:Results | Where-Object { $_.status -eq 'PASS' }).Count
@@ -1936,7 +2092,17 @@ $report = [ordered]@{
     screenshots = $script:Screenshots
 }
 
-$reportPath = Join-Path $OutputDirectory 'ui-audit.json'
+$reportPath = if ($overall -eq 'PASS') {
+    Join-Path $OutputDirectory 'ui-audit.json'
+}
+else {
+    $failedReportDirectory = Join-Path $projectRoot 'artifacts\runtime'
+    [IO.Directory]::CreateDirectory($failedReportDirectory) | Out-Null
+    Join-Path $failedReportDirectory (
+        'ui-audit-failed-' +
+        [DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss') +
+        '.json')
+}
 $json = $report | ConvertTo-Json -Depth 8
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($reportPath, $json, $utf8WithoutBom)

@@ -6,6 +6,10 @@ namespace CodexUsageWidget.Tests;
 public sealed class UsageRepositoryTests
 {
     private const string RootId = "11111111-1111-1111-1111-111111111111";
+    private static readonly double[] ExpectedDailyWeeklyConsumption =
+        [18d, 33d, 25d, 49d, 27d, 61d, 6d];
+    private static readonly double[] ExpectedDailyWeeklyClosingUsage =
+        [29d, 33d, 25d, 74d, 27d, 88d, 94d];
 
     [Fact]
     public async Task QueryPeriod_EmptyIndexReturnsZeroSummary()
@@ -23,6 +27,58 @@ public sealed class UsageRepositoryTests
         Assert.Equal(TokenUsage.Zero, snapshot.Summary.TopTasksTotal);
         Assert.Equal(TokenUsage.Zero, snapshot.Summary.OtherTasksTotal);
         Assert.Equal(0, snapshot.Summary.TopTasksPercent);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task QueryPeriod_RejectsUnsafeDateTimeBoundary(bool minimum)
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var unsafeTimestamp = minimum
+            ? DateTimeOffset.MinValue
+            : DateTimeOffset.MaxValue;
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => repository.QueryPeriodAsync(UsagePeriod.Last7Days, unsafeTimestamp));
+    }
+
+    [Fact]
+    public async Task QueryPeriod_RejectsUnboundedTopTaskAllocation()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => repository.QueryPeriodAsync(
+                UsagePeriod.All,
+                topTaskCount: int.MaxValue));
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_RejectsUnsafeDateTimeBoundary()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => repository.QueryWeeklyRateLimitDailyUsageAsync(
+                DateTimeOffset.MinValue,
+                DateTimeOffset.MinValue.AddDays(1)));
+    }
+
+    [Fact]
+    public async Task QueryWeeklyRateLimitDailyUsage_RejectsUnboundedDateRange()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var from = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => repository.QueryWeeklyRateLimitDailyUsageAsync(
+                from,
+                from.AddDays(367)));
     }
 
     [Fact]
@@ -55,6 +111,63 @@ public sealed class UsageRepositoryTests
         Assert.Equal(1, third.InsertedEvents);
         Assert.Equal(new TokenUsage(150, 90, 12, 30, 8), snapshot.Summary.Total);
         Assert.Equal(180, snapshot.Summary.Total.TotalTokens);
+    }
+
+    [Fact]
+    public async Task IndexFile_PersistsHighWaterAcrossIncrementalRollback()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage.db");
+        var logPath = temporary.GetPath($"rollout-jitter-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(
+            2026,
+            7,
+            28,
+            4,
+            15,
+            0,
+            TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 603_764_545, 500_000_000, 0, 1_000, 100));
+
+        var firstRepository = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await firstRepository.InitializeAsync();
+        await firstRepository.IndexFileAsync(logPath, false);
+        await TestLog.AppendLinesAsync(
+            logPath,
+            TestLog.TokenCount(
+                timestamp.AddSeconds(1),
+                603_754_655,
+                499_999_000,
+                0,
+                999,
+                99));
+        var rollback = await firstRepository.IndexFileAsync(logPath, false);
+
+        var reopened = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await reopened.InitializeAsync();
+        await TestLog.AppendLinesAsync(
+            logPath,
+            TestLog.TokenCount(
+                timestamp.AddSeconds(2),
+                603_800_000,
+                500_020_000,
+                0,
+                1_100,
+                110));
+        var increase = await reopened.IndexFileAsync(logPath, false);
+        var snapshot = await reopened.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddHours(1));
+
+        Assert.Equal(0, rollback.InsertedEvents);
+        Assert.Equal(1, increase.InsertedEvents);
+        Assert.Equal(
+            new TokenUsage(603_800_000, 500_020_000, 0, 1_100, 110),
+            snapshot.Summary.Total);
     }
 
     [Fact]
@@ -252,6 +365,194 @@ public sealed class UsageRepositoryTests
         Assert.Equal(
             parsed.Checkpoint.Offset,
             await migratedRepository.GetIndexedOffsetAsync(logPath));
+    }
+
+    [Fact]
+    public async Task IndexFile_VersionTwoReparsesOnlyRootLikeFork()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage.db");
+        var repository = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await repository.InitializeAsync();
+        const string forkId = "33333333-3333-3333-3333-333333333333";
+        const string normalId = "44444444-4444-4444-4444-444444444444";
+        var parentPath = temporary.GetPath($"rollout-parent-{RootId}.jsonl");
+        var forkPath = temporary.GetPath($"rollout-{forkId}.jsonl");
+        var normalPath = temporary.GetPath($"rollout-{normalId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 28, 20, 25, 39, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            parentPath,
+            TestLog.SessionMeta(RootId, RootId, timestamp: timestamp),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 100, 80, 0, 10, 5),
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(timestamp.AddSeconds(3), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(timestamp.AddSeconds(4), 300, 240, 0, 30, 15));
+        // Simulate the v2 classification: session_id points to itself, so the
+        // copied prefix was indexed as ordinary root usage.
+        await TestLog.WriteLinesAsync(
+            forkPath,
+            TestLog.SessionMeta(forkId, forkId, timestamp: timestamp),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 100, 80, 0, 10, 5),
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(timestamp.AddSeconds(3), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(timestamp.AddSeconds(5), 250, 200, 0, 25, 12));
+        await TestLog.WriteLinesAsync(
+            normalPath,
+            TestLog.SessionMeta(normalId, normalId, timestamp: timestamp),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 30, 20, 0, 3, 1));
+        await repository.IndexFileAsync(parentPath, false);
+        await repository.IndexFileAsync(forkPath, false);
+        await repository.IndexFileAsync(normalPath, false);
+
+        // The real metadata was present in the affected rollout. Rewrite it
+        // here after creating the legacy state so the migration sees exactly
+        // the root-like subagent fork shape found in production.
+        await TestLog.WriteLinesAsync(
+            forkPath,
+            TestLog.SessionMeta(
+                forkId,
+                forkId,
+                timestamp: timestamp,
+                forkedFromId: RootId,
+                threadSource: "subagent"),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 100, 80, 0, 10, 5),
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(timestamp.AddSeconds(3), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(timestamp.AddSeconds(5), 250, 200, 0, 25, 12));
+
+        await using (var connection = new SqliteConnection(
+                         $"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            foreach (var path in new[] { forkPath, normalPath })
+            {
+                var file = new FileInfo(path);
+                var key = UsageRepository.GetSourceKey(path);
+                var hash = await SharedFileAccess.ComputeCheckpointHashAsync(
+                    path,
+                    file.Length);
+                await using var update = connection.CreateCommand();
+                update.CommandText =
+                    """
+                    UPDATE file_state
+                    SET file_length = $length,
+                        processed_offset = $length,
+                        last_write_utc_ticks = $ticks,
+                        token_accounting_version = 2,
+                        checkpoint_hash = $hash
+                    WHERE file_key = $key;
+                    """;
+                update.Parameters.AddWithValue("$length", file.Length);
+                update.Parameters.AddWithValue("$ticks", file.LastWriteTimeUtc.Ticks);
+                update.Parameters.AddWithValue("$hash", hash);
+                update.Parameters.AddWithValue("$key", key);
+                await update.ExecuteNonQueryAsync();
+            }
+        }
+
+        var reopened = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await reopened.InitializeAsync();
+        var pendingMigration = await reopened.LoadIndexedFileMetadataAsync();
+        Assert.False(
+            pendingMigration[UsageRepository.GetSourceKey(parentPath)]
+                .NeedsForkReplayMigration);
+        Assert.True(
+            pendingMigration[UsageRepository.GetSourceKey(forkPath)]
+                .NeedsForkReplayMigration);
+        Assert.True(
+            pendingMigration[UsageRepository.GetSourceKey(normalPath)]
+                .NeedsForkReplayMigration);
+        var normalMigration = await reopened.IndexFileAsync(normalPath, false);
+        var forkMigration = await reopened.IndexFileAsync(forkPath, false);
+        var snapshot = await reopened.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddHours(1));
+
+        Assert.False(normalMigration.WasReset);
+        Assert.Equal(0, normalMigration.InsertedEvents);
+        Assert.True(forkMigration.WasReset);
+        Assert.Equal(1, forkMigration.InsertedEvents);
+        Assert.Equal(new TokenUsage(380, 300, 0, 38, 18), snapshot.Summary.Total);
+    }
+
+    [Fact]
+    public async Task IndexFile_ForkWaitsUntilItsParentHasBeenIndexed()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        const string forkId = "55555555-5555-5555-5555-555555555555";
+        var parentPath = temporary.GetPath($"rollout-parent-{RootId}.jsonl");
+        var forkPath = temporary.GetPath($"rollout-fork-{forkId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 28, 21, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            parentPath,
+            TestLog.SessionMeta(RootId, RootId, timestamp: timestamp),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 200, 160, 0, 20, 10));
+        await TestLog.WriteLinesAsync(
+            forkPath,
+            TestLog.SessionMeta(
+                forkId,
+                forkId,
+                timestamp: timestamp,
+                forkedFromId: RootId,
+                threadSource: "subagent"),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 200, 160, 0, 20, 10),
+            TestLog.TokenCount(timestamp.AddSeconds(2), 250, 200, 0, 25, 12));
+
+        var pending = await repository.IndexFileAsync(forkPath, false);
+        var beforeParent = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddHours(1));
+        await repository.IndexFileAsync(parentPath, false);
+        var indexed = await repository.IndexFileAsync(forkPath, false);
+        var afterParent = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddHours(1));
+
+        Assert.True(pending.NeedsReplayMigration);
+        Assert.Equal(0, pending.CurrentOffset);
+        Assert.Equal(TokenUsage.Zero, beforeParent.Summary.Total);
+        Assert.False(indexed.NeedsReplayMigration);
+        Assert.Equal(1, indexed.InsertedEvents);
+        Assert.Equal(
+            new TokenUsage(250, 200, 0, 25, 12),
+            afterParent.Summary.Total);
+    }
+
+    [Fact]
+    public async Task IndexFile_OrdinaryChildForkKeepsLightweightMarkerTrim()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        const string childId = "66666666-6666-6666-6666-666666666666";
+        var childPath = temporary.GetPath($"rollout-child-{childId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 28, 22, 0, 0, TimeSpan.Zero);
+
+        await TestLog.WriteLinesAsync(
+            childPath,
+            TestLog.SessionMeta(
+                childId,
+                RootId,
+                parentThreadId: RootId,
+                timestamp: timestamp,
+                forkedFromId: RootId,
+                threadSource: "subagent"),
+            TestLog.TokenCount(timestamp.AddSeconds(1), 200, 160, 0, 20, 10),
+            TestLog.ReplayBoundary(timestamp.AddSeconds(2)),
+            TestLog.TokenCount(timestamp.AddSeconds(3), 250, 200, 0, 25, 12));
+
+        var indexed = await repository.IndexFileAsync(childPath, false);
+        var snapshot = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddHours(1));
+
+        Assert.False(indexed.NeedsReplayMigration);
+        Assert.Equal(1, indexed.InsertedEvents);
+        Assert.Equal(
+            new TokenUsage(50, 40, 0, 5, 2),
+            snapshot.Summary.Total);
     }
 
     [Fact]
@@ -1132,6 +1433,12 @@ public sealed class UsageRepositoryTests
             TestLog.WeeklyRateLimit(
                 new DateTimeOffset(2026, 7, 20, 9, 30, 0, TimeSpan.Zero),
                 70d,
+                sparseReset),
+            // This row is chronologically latest but is a stale rollback on
+            // the sparse timeline. It must not make that timeline authoritative.
+            TestLog.WeeklyRateLimit(
+                new DateTimeOffset(2026, 7, 20, 11, 0, 0, TimeSpan.Zero),
+                60d,
                 sparseReset));
 
         await repository.IndexFileAsync(canonicalPath, false);
@@ -1385,11 +1692,11 @@ public sealed class UsageRepositoryTests
             new DateTimeOffset(2026, 7, 21, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Equal(
-            new[] { 18d, 33d, 25d, 49d, 27d, 61d, 6d },
+            ExpectedDailyWeeklyConsumption,
             history.Select(
                 static day => day.ConsumedPercentagePoints!.Value));
         Assert.Equal(
-            new[] { 29d, 33d, 25d, 74d, 27d, 88d, 94d },
+            ExpectedDailyWeeklyClosingUsage,
             history.Select(
                 static day => day.LastObservedUsedPercent!.Value));
         Assert.All(history, static day => Assert.False(day.IsPartial));
@@ -1417,6 +1724,214 @@ public sealed class UsageRepositoryTests
             timestamp);
 
         Assert.Equal("有时间的新标题", Assert.Single(snapshot.TopTasks).Title);
+    }
+
+    [Fact]
+    public async Task TimeZoneIdentityChange_ResetsDerivedIndexAndCompletionMarker()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage-time-zone.db");
+        var logPath = temporary.GetPath($"rollout-zone-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 18, 18, 0, 0, TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+        const string sharedZoneId = "CodexUsageWidget.Tests.SameId";
+        var zoneA = TimeZoneInfo.CreateCustomTimeZone(
+            sharedZoneId,
+            TimeSpan.Zero,
+            "Zone A",
+            "Zone A");
+        var zoneB = TimeZoneInfo.CreateCustomTimeZone(
+            sharedZoneId,
+            TimeSpan.FromHours(12),
+            "Zone B",
+            "Zone B");
+
+        var first = new UsageRepository(databasePath, zoneA);
+        await first.InitializeAsync();
+        Assert.False(await first.EnsureTimeZoneCompatibilityAsync());
+        await first.IndexFileAsync(logPath, false);
+        await first.MarkRefreshCompleteAsync(timestamp);
+
+        var reopened = new UsageRepository(databasePath, zoneB);
+        await reopened.InitializeAsync();
+        Assert.True(await reopened.EnsureTimeZoneCompatibilityAsync());
+
+        Assert.False(await reopened.HasCompletedInitialIndexAsync());
+        Assert.Equal(
+            TokenUsage.Zero,
+            (await reopened.QueryPeriodAsync(UsagePeriod.All, timestamp))
+                .Summary.Total);
+    }
+
+    [Fact]
+    public async Task LegacyIndex_TimeZoneMismatchIsDetectedFromEventDates()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage-legacy-zone.db");
+        var logPath = temporary.GetPath($"rollout-legacy-zone-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 18, 18, 0, 0, TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+        var original = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await original.InitializeAsync();
+        await original.IndexFileAsync(logPath, false);
+
+        var shiftedZone = TimeZoneInfo.CreateCustomTimeZone(
+            "CodexUsageWidget.Tests.LegacyShifted",
+            TimeSpan.FromHours(12),
+            "Shifted",
+            "Shifted");
+        var reopened = new UsageRepository(databasePath, shiftedZone);
+        await reopened.InitializeAsync();
+
+        Assert.True(await reopened.EnsureTimeZoneCompatibilityAsync());
+        Assert.Equal(
+            TokenUsage.Zero,
+            (await reopened.QueryPeriodAsync(UsagePeriod.All, timestamp))
+                .Summary.Total);
+    }
+
+    [Fact]
+    public async Task LegacyIndex_MatchingTimeZoneIsAdoptedWithoutDataLoss()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage-legacy-same-zone.db");
+        var logPath = temporary.GetPath($"rollout-legacy-same-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(2026, 7, 18, 18, 0, 0, TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+        var original = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await original.InitializeAsync();
+        await original.IndexFileAsync(logPath, false);
+
+        var reopened = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await reopened.InitializeAsync();
+
+        Assert.False(await reopened.EnsureTimeZoneCompatibilityAsync());
+        Assert.Equal(
+              120,
+              (await reopened.QueryPeriodAsync(UsagePeriod.All, timestamp))
+                  .Summary.Total.TotalTokens);
+    }
+
+    [Fact]
+    public async Task LoadIndexedFileMetadata_OversizedVersionResetsDerivedCache()
+    {
+        await AssertSemanticMetadataDamageResetsCacheAsync(
+            "token_accounting_version",
+            long.MaxValue);
+    }
+
+    [Fact]
+    public async Task LoadIndexedFileMetadata_OutOfRangeOffsetResetsDerivedCache()
+    {
+        await AssertSemanticMetadataDamageResetsCacheAsync(
+            "processed_offset",
+            -1L);
+    }
+
+    [Fact]
+    public async Task LoadIndexedFileMetadata_WrongStorageTypeResetsDerivedCache()
+    {
+        await AssertSemanticMetadataDamageResetsCacheAsync(
+            "path",
+            new byte[] { 0x01, 0x02, 0x03 });
+    }
+
+    [Fact]
+    public async Task IndexFile_RuntimeCheckpointDamageRebuildsWithoutDoubleCounting()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage-runtime-damage.db");
+        var logPath = temporary.GetPath($"rollout-runtime-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(
+            2026,
+            7,
+            18,
+            18,
+            0,
+            0,
+            TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+
+        var repository = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await repository.InitializeAsync();
+        await repository.IndexFileAsync(logPath, false);
+
+        await using (var connection = new SqliteConnection(
+                         $"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var damage = connection.CreateCommand();
+            damage.CommandText =
+                "UPDATE file_state SET previous_input = -1;";
+            Assert.Equal(1, await damage.ExecuteNonQueryAsync());
+        }
+
+        var repaired = await repository.IndexFileAsync(logPath, false);
+        var snapshot = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddMinutes(1));
+
+        Assert.True(repaired.WasReset);
+        Assert.Equal(1, repaired.InsertedEvents);
+        Assert.Equal(120, snapshot.Summary.Total.TotalTokens);
+    }
+
+    private static async Task AssertSemanticMetadataDamageResetsCacheAsync(
+        string column,
+        object damagedValue)
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath($"usage-damaged-{column}.db");
+        var logPath = temporary.GetPath($"rollout-damaged-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(
+            2026,
+            7,
+            18,
+            18,
+            0,
+            0,
+            TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+
+        var original = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await original.InitializeAsync();
+        await original.IndexFileAsync(logPath, false);
+        await original.MarkRefreshCompleteAsync(timestamp);
+
+        await using (var connection = new SqliteConnection(
+                         $"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var damage = connection.CreateCommand();
+            damage.CommandText = $"UPDATE file_state SET {column} = $value;";
+            damage.Parameters.AddWithValue("$value", damagedValue);
+            Assert.Equal(1, await damage.ExecuteNonQueryAsync());
+        }
+
+        var reopened = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await reopened.InitializeAsync();
+
+        Assert.Empty(await reopened.LoadIndexedFileMetadataAsync());
+        Assert.False(await reopened.HasCompletedInitialIndexAsync());
+        Assert.Equal(
+            TokenUsage.Zero,
+            (await reopened.QueryPeriodAsync(UsagePeriod.All, timestamp))
+                .Summary.Total);
     }
 
     private static async Task<UsageRepository> CreateRepositoryAsync(

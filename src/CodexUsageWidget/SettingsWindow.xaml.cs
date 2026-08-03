@@ -17,6 +17,7 @@ public partial class SettingsWindow : Window
     private readonly AppSettings originalSettings;
     private bool systemEventsSubscribed;
     private bool initializing = true;
+    private bool isClosed;
 
     public SettingsWindow(AppSettings settings)
     {
@@ -47,8 +48,6 @@ public partial class SettingsWindow : Window
     public AppSettings? ResultSettings { get; private set; }
 
     public bool RebuildIndexRequested { get; private set; }
-
-    public event Action<int>? GlassTransparencyPreviewChanged;
 
     public void ApplyTheme(bool useLightTheme)
     {
@@ -118,6 +117,7 @@ public partial class SettingsWindow : Window
             Resources["ToolTipBackgroundBrush"] = SystemColors.WindowBrush;
             Resources["ToolTipBorderBrush"] = SystemColors.WindowTextBrush;
         }
+
     }
 
     private AppThemeMode SelectedTheme =>
@@ -188,6 +188,7 @@ public partial class SettingsWindow : Window
 
     private void SettingsWindow_OnClosed(object? sender, EventArgs e)
     {
+        isClosed = true;
         if (!systemEventsSubscribed)
         {
             return;
@@ -201,16 +202,30 @@ public partial class SettingsWindow : Window
         object sender,
         UserPreferenceChangedEventArgs e)
     {
-        if (Dispatcher.HasShutdownStarted)
+        if (isClosed ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
         {
             return;
         }
 
-        Dispatcher.BeginInvoke(
-            () =>
-            {
-                ApplyTheme(ThemeService.ShouldUseLightTheme(SelectedTheme));
-            });
+        try
+        {
+            Dispatcher.BeginInvoke(
+                () =>
+                {
+                    if (!isClosed)
+                    {
+                        ApplyTheme(ThemeService.ShouldUseLightTheme(SelectedTheme));
+                    }
+                });
+        }
+        catch (InvalidOperationException) when (
+            isClosed ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+        }
     }
 
     private void ThemeComboBox_OnSelectionChanged(
@@ -223,22 +238,6 @@ public partial class SettingsWindow : Window
         }
 
         ApplyTheme(ThemeService.ShouldUseLightTheme(SelectedTheme));
-    }
-
-    private void GlassTransparencySlider_OnValueChanged(
-        object sender,
-        RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (initializing)
-        {
-            return;
-        }
-
-        GlassTransparencyPreviewChanged?.Invoke(
-            GlassTransparencyPolicy.Normalize(
-                (int)Math.Round(
-                    e.NewValue,
-                    MidpointRounding.AwayFromZero)));
     }
 
     private void Header_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

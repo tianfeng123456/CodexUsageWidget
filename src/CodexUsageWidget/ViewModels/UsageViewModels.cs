@@ -325,9 +325,12 @@ public sealed class UsagePeriodViewModel : ObservableObject
             });
 
     public string SectionTitle =>
-        LocalizationService.Instance.Format(
-            "Loc.PeriodSectionTitleFormat",
-            DisplayName);
+        Kind == UsagePeriodKind.AllTime
+            ? LocalizationService.Instance.Get(
+                "Loc.LocalCumulativeSectionTitle")
+            : LocalizationService.Instance.Format(
+                "Loc.PeriodSectionTitleFormat",
+                DisplayName);
 
     public ObservableCollection<TaskUsageRowViewModel> Rankings { get; } = [];
 

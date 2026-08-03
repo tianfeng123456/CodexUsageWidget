@@ -31,7 +31,35 @@ public static class CodexHomeLocator
         string? explicitPath = null,
         IEnumerable<string>? additionalCandidates = null)
     {
-        var candidates = BuildCandidates(explicitPath, additionalCandidates);
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            try
+            {
+                var explicitPaths = CodexHomePaths.FromHome(explicitPath);
+                if (explicitPaths.HasAnyDataSource)
+                {
+                    return explicitPaths;
+                }
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or
+                    IOException or
+                    UnauthorizedAccessException or
+                    NotSupportedException or
+                    System.Security.SecurityException)
+            {
+                throw new DirectoryNotFoundException(
+                    "设置的 Codex Home 不可访问或不包含用量数据源。",
+                    exception);
+            }
+
+            // An explicit user choice must never silently display data from a
+            // different auto-detected environment.
+            throw new DirectoryNotFoundException(
+                "设置的 Codex Home 不包含 sessions、archived_sessions 或 session_index.jsonl。" );
+        }
+
+        var candidates = BuildCandidates(null, additionalCandidates);
         foreach (var candidate in candidates)
         {
             try
@@ -46,7 +74,8 @@ public static class CodexHomeLocator
                 ex is ArgumentException or
                 IOException or
                 UnauthorizedAccessException or
-                NotSupportedException)
+                NotSupportedException or
+                System.Security.SecurityException)
             {
                 // A candidate may be unavailable or malformed. Continue with the next one.
             }
@@ -90,6 +119,10 @@ public static class CodexHomeLocator
             // Drive enumeration is only a fallback.
         }
         catch (UnauthorizedAccessException)
+        {
+            // Drive enumeration is only a fallback.
+        }
+        catch (System.Security.SecurityException)
         {
             // Drive enumeration is only a fallback.
         }

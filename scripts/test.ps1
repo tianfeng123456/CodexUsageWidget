@@ -13,8 +13,7 @@ $env:DOTNET_NOLOGO = '1'
 New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
 
 & $dotnet restore (Join-Path $projectRoot 'CodexUsageWidget.sln') `
-    --configfile (Join-Path $projectRoot 'NuGet.Config') `
-    -p:NuGetAudit=false
+    --configfile (Join-Path $projectRoot 'NuGet.Config')
 if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
 
 & $dotnet test (Join-Path $projectRoot 'CodexUsageWidget.sln') `

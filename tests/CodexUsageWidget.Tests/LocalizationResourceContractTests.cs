@@ -11,6 +11,8 @@ public sealed class LocalizationResourceContractTests
         "src/CodexUsageWidget/Resources/Strings.zh-Hans.xaml";
     private const string SettingsWindowPath =
         "src/CodexUsageWidget/SettingsWindow.xaml";
+    private const string SettingsWindowCodeBehindPath =
+        "src/CodexUsageWidget/SettingsWindow.xaml.cs";
     private const string AppSettingsPath =
         "src/CodexUsageWidget/Services/AppSettings.cs";
     private const string SettingsServicePath =
@@ -65,9 +67,9 @@ public sealed class LocalizationResourceContractTests
     [Fact]
     public void LocalizedResourceDictionaries_HaveMatchingCompleteContracts()
     {
-        IReadOnlyDictionary<string, string> english =
+        Dictionary<string, string> english =
             LoadResourceDictionary(EnglishResourcePath);
-        IReadOnlyDictionary<string, string> chinese =
+        Dictionary<string, string> chinese =
             LoadResourceDictionary(ChineseResourcePath);
 
         Assert.Equal(
@@ -111,7 +113,7 @@ public sealed class LocalizationResourceContractTests
     [Fact]
     public void ProductionWindowXaml_UsesOnlyKnownDynamicLocalizationResources()
     {
-        IReadOnlyDictionary<string, string> resources =
+        Dictionary<string, string> resources =
             LoadResourceDictionary(EnglishResourcePath);
 
         foreach (string relativePath in ProductionWindowPaths)
@@ -176,7 +178,7 @@ public sealed class LocalizationResourceContractTests
     [Fact]
     public void ProductionCode_UsesOnlyKnownLocalizationKeys()
     {
-        IReadOnlyDictionary<string, string> resources =
+        Dictionary<string, string> resources =
             LoadResourceDictionary(EnglishResourcePath);
         string[] missingKeys = ProductionLocalizationCodePaths
             .SelectMany(
@@ -207,6 +209,11 @@ public sealed class LocalizationResourceContractTests
             content,
             StringComparison.Ordinal);
         Assert.Contains(
+            "Content=\"{DynamicResource Loc.CollapsedModeGlow}\"",
+            content,
+            StringComparison.Ordinal);
+        Assert.Contains("Tag=\"Glow\"", content, StringComparison.Ordinal);
+        Assert.Contains(
             "Content=\"{DynamicResource Loc.CollapsedModeCircle}\"",
             content,
             StringComparison.Ordinal);
@@ -216,6 +223,12 @@ public sealed class LocalizationResourceContractTests
             content,
             StringComparison.Ordinal);
         Assert.Contains("Tag=\"Capsule\"", content, StringComparison.Ordinal);
+        Assert.True(
+            content.IndexOf("Tag=\"Glow\"", StringComparison.Ordinal) <
+            content.IndexOf("Tag=\"Circle\"", StringComparison.Ordinal) &&
+            content.IndexOf("Tag=\"Circle\"", StringComparison.Ordinal) <
+            content.IndexOf("Tag=\"Capsule\"", StringComparison.Ordinal),
+            "Idle style options must be ordered Glow, Circle, Capsule.");
         Assert.Contains(
             "Foreground=\"{Binding Foreground, " +
             "RelativeSource={RelativeSource AncestorType=ComboBox}}\"",
@@ -250,6 +263,8 @@ public sealed class LocalizationResourceContractTests
             FindRepositoryFile(SettingsWindowPath));
         string settings = File.ReadAllText(
             FindRepositoryFile(AppSettingsPath));
+        string codeBehind = File.ReadAllText(
+            FindRepositoryFile(SettingsWindowCodeBehindPath));
 
         Assert.Contains(
             "AutomationProperties.AutomationId=\"GlassTransparencySlider\"",
@@ -267,6 +282,14 @@ public sealed class LocalizationResourceContractTests
             "Loc.GlassTransparencyDescription",
             content,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "GlassTransparencyPreviewSurface",
+            content,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "GlassTransparencySlider_OnValueChanged",
+            content,
+            StringComparison.Ordinal);
         Assert.Contains(
             "public int GlassTransparencyPercent",
             settings,
@@ -274,6 +297,10 @@ public sealed class LocalizationResourceContractTests
         Assert.Contains(
             "GlassTransparencyPolicy.Normalize(",
             settings,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "GlassTransparencyPreviewChanged",
+            codeBehind,
             StringComparison.Ordinal);
     }
 
@@ -301,6 +328,20 @@ public sealed class LocalizationResourceContractTests
             "GlassTransparencyPolicy.CurrentSemanticsVersion",
             service,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsService_UsesAtomicBackupRecoveryStorage()
+    {
+        string source = File.ReadAllText(FindRepositoryFile(
+            "src/CodexUsageWidget/Services/SettingsService.cs"));
+
+        Assert.Contains("AtomicJsonFileStorage.ReadAsync(", source);
+        Assert.Contains("AtomicJsonFileStorage.WriteAsync(", source);
+        Assert.Contains("primaryNeedsRepair", source);
+        Assert.DoesNotContain(
+            "File.Move(temporaryPath, SettingsPath, overwrite: true)",
+            source);
     }
 
     [Fact]
@@ -334,12 +375,16 @@ public sealed class LocalizationResourceContractTests
 
         Assert.Matches(
             @"public\s+enum\s+CollapsedWidgetMode\s*\{\s*" +
-            @"Circle\s*,\s*Capsule\s*,?\s*\}",
+            @"Glow\s*,\s*Circle\s*,\s*Capsule\s*,?\s*\}",
             content);
         Assert.Matches(
             @"public\s+string\s+CollapsedMode\s*\{\s*get;\s*set;\s*\}" +
             @"\s*=\s*nameof\(CollapsedWidgetMode\.Circle\)",
             content);
+        Assert.Contains(
+            "\"glow\" => CollapsedWidgetMode.Glow",
+            content,
+            StringComparison.Ordinal);
         Assert.Contains(
             "\"capsule\" => CollapsedWidgetMode.Capsule",
             content,
@@ -354,7 +399,7 @@ public sealed class LocalizationResourceContractTests
             StringComparison.Ordinal);
     }
 
-    private static IReadOnlyDictionary<string, string>
+    private static Dictionary<string, string>
         LoadResourceDictionary(string relativePath)
     {
         XDocument document = XDocument.Load(
@@ -394,7 +439,10 @@ public sealed class LocalizationResourceContractTests
     private static string[] GetPlaceholderSignature(string value) =>
         CompositeFormatPlaceholderPattern
             .Matches(value)
-            .Select(match => int.Parse(match.Groups["index"].Value))
+            .Select(
+                match => int.Parse(
+                    match.Groups["index"].Value,
+                    System.Globalization.CultureInfo.InvariantCulture))
             .GroupBy(index => index)
             .OrderBy(group => group.Key)
             .Select(group => $"{group.Key}:{group.Count()}")
