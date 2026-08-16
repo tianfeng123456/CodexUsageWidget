@@ -286,9 +286,9 @@ public sealed class UsageIndexService : IAsyncDisposable
                         _indexedFiles[sourceKey] = new IndexedFileMetadata(
                             sourceKey,
                             file.Path,
-                            file.Length,
+                            result.IndexedFileLength,
                             result.CurrentOffset,
-                            file.LastWriteUtcTicks,
+                            result.IndexedLastWriteUtcTicks,
                             file.IsArchived,
                             result.NeedsReplayMigration,
                             false,
@@ -368,9 +368,9 @@ public sealed class UsageIndexService : IAsyncDisposable
                         _indexedFiles[sourceKey] = new IndexedFileMetadata(
                             sourceKey,
                             file.Path,
-                            file.Length,
+                            result.IndexedFileLength,
                             result.CurrentOffset,
-                            file.LastWriteUtcTicks,
+                            result.IndexedLastWriteUtcTicks,
                             file.IsArchived,
                             result.NeedsReplayMigration,
                             false,

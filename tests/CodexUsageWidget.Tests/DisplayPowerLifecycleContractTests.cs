@@ -285,6 +285,77 @@ public sealed class DisplayPowerLifecycleContractTests
     }
 
     [Fact]
+    public void PanelCancellation_DoesNotAbortTriggeredIndexCatchUp()
+    {
+        string source = ReadRepositoryFile(DashboardControllerPath);
+
+        Assert.Equal(
+            3,
+            Count(source, "CreatePanelIndexRefreshCancellation("));
+        Assert.Equal(
+            2,
+            Count(source, "service.RefreshAsync(indexRefreshToken)"));
+        Assert.Equal(
+            2,
+            Count(source, "request.Token.ThrowIfCancellationRequested();"));
+        Assert.Contains(
+            "request.Source.Token,",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.Activity.CancellationToken,",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsSupersededPanelRefresh(request)",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "service.RefreshAsync(request.Token)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AutoCollapse_RechecksHwndAndWpfHoverDisagreementOnce()
+    {
+        string source = ReadRepositoryFile(MainWindowPath);
+
+        Assert.Contains(
+            "pointerInsideBounds && IsMouseOver",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ScheduleAutoCollapsePointerRecheck();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TimeSpan.FromMilliseconds(50)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryCompleteAutoCollapse(allowPointerRecheck: false);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Interval = TimeSpan.FromMilliseconds(125)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "UpdateExpandedPointerMonitor();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "StopExpandedPointerMonitor();",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "IsPointerInsideWindowBounds() ||",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DashboardUiNotifications_AreIgnoredAfterDispatcherShutdown()
     {
         string source = ReadRepositoryFile(DashboardControllerPath);

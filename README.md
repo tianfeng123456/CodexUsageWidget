@@ -4,7 +4,7 @@
 
 [![最新版本](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](../../releases/latest)
 
-当前稳定版：**v1.2.0**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
+当前稳定版：**v1.2.1**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
 
 一个完全在本机运行的 Windows 11 桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗。应用采用 WPF、.NET 8、SQLite 和 MVVM，发布为 Windows x64 自包含单文件，使用者无需预装 .NET。
 

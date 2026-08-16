@@ -12,6 +12,8 @@ public sealed record FileIndexResult(
     int InsertedEvents,
     int MalformedLines,
     bool WasReset,
+    long IndexedFileLength,
+    long IndexedLastWriteUtcTicks,
     bool NeedsReplayMigration = false)
 {
     public long BytesProcessed => Math.Max(0, CurrentOffset - PreviousOffset);
@@ -170,6 +172,9 @@ public sealed class UsageRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureReplayBoundaryOffsetColumnAsync(connection, cancellationToken);
         await EnsureTokenAccountingVersionColumnAsync(
+            connection,
+            cancellationToken);
+        await RepairConcurrentAppendFileLengthsAsync(
             connection,
             cancellationToken);
         _initialized = true;
@@ -393,7 +398,11 @@ public sealed class UsageRepository
                     cancellationToken);
                 if (parentPath is null)
                 {
-                    return PendingReplayMigration(sourceKey, state, wasReset);
+                    return PendingReplayMigration(
+                        sourceKey,
+                        state,
+                        file,
+                        wasReset);
                 }
 
                 exactForkReplayCutoff =
@@ -469,7 +478,11 @@ public sealed class UsageRepository
                     cancellationToken);
                 if (parentPath is null)
                 {
-                    return PendingReplayMigration(sourceKey, state, wasReset);
+                    return PendingReplayMigration(
+                        sourceKey,
+                        state,
+                        file,
+                        wasReset);
                 }
 
                 exactForkReplayCutoff =
@@ -507,6 +520,22 @@ public sealed class UsageRepository
             parseResult.Checkpoint.Offset,
             cancellationToken);
 
+        // FileInfo caches metadata. Codex can append more JSONL bytes while the
+        // parser is running, so refresh after parsing before persisting the
+        // checkpoint. Keeping file_length at least as large as the durable
+        // offset preserves the database invariant even during a truncate race;
+        // the next continuity check still detects an actually shortened file.
+        file.Refresh();
+        if (!file.Exists)
+        {
+            throw new FileNotFoundException("Codex 日志文件不存在。", path);
+        }
+
+        var indexedFileLength = Math.Max(
+            file.Length,
+            parseResult.Checkpoint.Offset);
+        var indexedLastWriteUtcTicks = file.LastWriteTimeUtc.Ticks;
+
         using var transaction = connection.BeginTransaction();
         if (legacyReplayBoundaryOffset is long legacyReplayCutoff)
         {
@@ -534,8 +563,8 @@ public sealed class UsageRepository
             transaction,
             sourceKey,
             path,
-            file.Length,
-            file.LastWriteTimeUtc.Ticks,
+            indexedFileLength,
+            indexedLastWriteUtcTicks,
             parseResult.Checkpoint,
             currentHash,
             isArchived,
@@ -597,6 +626,8 @@ public sealed class UsageRepository
             insertedEvents,
             parseResult.MalformedLineCount,
             wasReset,
+            indexedFileLength,
+            indexedLastWriteUtcTicks,
             parseResult.Checkpoint.RequiresReplayTrim &&
             parseResult.Checkpoint.ReplayBoundarySeen &&
             parseResult.Checkpoint.FirstReplayBoundaryOffset is null);
@@ -1673,6 +1704,24 @@ public sealed class UsageRepository
         await alter.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task RepairConcurrentAppendFileLengthsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var repair = connection.CreateCommand();
+        repair.CommandText =
+            """
+            UPDATE file_state
+            SET file_length = processed_offset
+            WHERE typeof(file_length) = 'integer'
+              AND typeof(processed_offset) = 'integer'
+              AND file_length >= 0
+              AND processed_offset >= 0
+              AND file_length < processed_offset;
+            """;
+        await repair.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task DeleteReplayPrefixAndRecalculateDailyUsageAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -1936,9 +1985,17 @@ public sealed class UsageRepository
     private static FileIndexResult PendingReplayMigration(
         string sourceKey,
         FileState? state,
+        FileInfo file,
         bool wasReset)
     {
         var offset = state?.ProcessedOffset ?? 0;
+        file.Refresh();
+        var fileLength = file.Exists
+            ? Math.Max(file.Length, offset)
+            : Math.Max(state?.FileLength ?? offset, offset);
+        var lastWriteUtcTicks = file.Exists
+            ? file.LastWriteTimeUtc.Ticks
+            : state?.LastWriteUtcTicks ?? DateTime.MinValue.Ticks;
         return new FileIndexResult(
             sourceKey,
             offset,
@@ -1946,6 +2003,8 @@ public sealed class UsageRepository
             InsertedEvents: 0,
             MalformedLines: 0,
             WasReset: wasReset,
+            IndexedFileLength: fileLength,
+            IndexedLastWriteUtcTicks: lastWriteUtcTicks,
             NeedsReplayMigration: true);
     }
 

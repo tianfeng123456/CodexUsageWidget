@@ -137,9 +137,12 @@ public sealed class RealLogAuditTests
             Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData),
             "CodexUsageWidget");
-        var databasePath = Directory
-            .EnumerateFiles(appData, "usage-index-*.db")
-            .Single();
+        var databasePath = UsageIndexDatabasePath.ForHome(
+            appData,
+            codexHome);
+        Assert.True(
+            File.Exists(databasePath),
+            $"The active Codex Home index does not exist: {databasePath}");
 
         await using var service = new UsageIndexService(
             new UsageIndexOptions(
@@ -156,6 +159,7 @@ public sealed class RealLogAuditTests
         var refreshElapsed = stopwatch.Elapsed;
 
         var timings = new List<string>();
+        var taskCounts = new List<string>();
         foreach (var period in new[]
                  {
                      UsagePeriod.Today,
@@ -170,15 +174,23 @@ public sealed class RealLogAuditTests
             AssertSnapshotInvariant(snapshot);
             timings.Add(
                 $"{period}={stopwatch.Elapsed.TotalMilliseconds:N1}ms");
+            taskCounts.Add($"{period}={snapshot.Summary.TaskCount}");
         }
 
+        var now = DateTimeOffset.Now;
+        var weeklyHistory = await service.QueryWeeklyRateLimitDailyUsageAsync(
+            now.AddDays(-8),
+            now.AddDays(1));
+
         _output.WriteLine(
-            "open={0:N1}ms; refresh={1:N1}ms; changed_files={2}; changed_bytes={3:N0}; {4}",
+            "open={0:N1}ms; refresh={1:N1}ms; changed_files={2}; changed_bytes={3:N0}; {4}; tasks[{5}]; weekly_days={6}",
             openElapsed.TotalMilliseconds,
             refreshElapsed.TotalMilliseconds,
             refresh.FilesChanged,
             refresh.BytesProcessed,
-            string.Join("; ", timings));
+            string.Join("; ", timings),
+            string.Join("; ", taskCounts),
+            weeklyHistory.Count);
     }
 
     private static string? GetRealCodexHome() =>

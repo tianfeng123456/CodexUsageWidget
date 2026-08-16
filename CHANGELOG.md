@@ -5,6 +5,43 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-16
+
+### 修复 / Fixed
+
+- 修复面板收起会取消已经开始的日志索引补读，导致任务排行和周额度每日消耗长期
+  停留在旧数据甚至显示为空的问题。收起现在只取消对应的查询与界面更新，已经触发
+  的增量索引会继续完成；切换 Codex Home、息屏、锁屏和应用退出仍会及时停止读取。
+- Fixed panel collapse cancelling an already-started log catch-up, which could
+  leave task rankings and daily weekly-quota usage stale or empty. Collapse now
+  cancels only the associated query and UI update while the triggered
+  incremental index completes. Home changes, display dormancy, session lock,
+  and shutdown still stop file work promptly.
+- 修复 Codex 持续追加日志时，解析位置可能短暂超过缓存文件长度的竞态。新索引会
+  保存解析后的最新文件信息；旧版留下的此类检查点会在启动时原地校正并保留统计，
+  不再触发整库清空与重建。
+- Fixed a concurrent-append race where the durable parser offset could exceed a
+  cached file length. New checkpoints persist refreshed file metadata, and
+  affected legacy rows are repaired in place without clearing valid usage data.
+- 修复悬浮窗靠近屏幕边缘时，透明圆角或偶发丢失的鼠标离开事件可能让展开面板无法
+  自动收起的问题。正常离开仍立即响应；展开且未固定时仅启用短时指针复核，收起或
+  固定后立即停止，不增加待机态轮询。
+- Fixed an expanded widget occasionally remaining open near a screen edge when
+  a rounded transparent corner or a lost pointer-leave event prevented the
+  final collapse. Ordinary leave remains immediate; a lightweight pointer
+  fallback runs only while expanded and unpinned.
+
+### 验证 / Validation
+
+- 349 项自动化测试全部通过，Release 严格构建为 0 警告、0 错误。
+- 真实本机索引验证返回今日 7、近 7 日 28、本月 88、累计 182 个任务，并读取到
+  最近窗口的 10 天周额度观测；四个周期查询均保持毫秒级。
+- 349 automated tests passed, and the strict Release build completed with zero
+  warnings and zero errors.
+- A live local-index audit returned 7 Today, 28 Last 7 Days, 88 This Month,
+  and 182 All Time tasks plus 10 recent weekly-quota observation days, with
+  millisecond-level period queries.
+
 ## [1.2.0] - 2026-08-03
 
 ### 修复 / Fixed
@@ -139,6 +176,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - 首次公开版本。
 - First public release.
 
+[1.2.1]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.0.0

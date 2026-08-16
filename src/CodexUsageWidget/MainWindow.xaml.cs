@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     private bool _isDragging;
     private bool _isClosed;
     private DispatcherOperation? _pendingCollapseOperation;
+    private DispatcherTimer? _pendingCollapseRecheckTimer;
+    private DispatcherTimer? _expandedPointerMonitorTimer;
     private IntPtr _dragWindowHandle;
     private NativePoint _dragStartCursor;
     private int _dragStartWindowLeft;
@@ -429,6 +431,8 @@ public partial class MainWindow : Window
             ApplyWindowState(expanded: true);
             SynchronizeVisualState(expanded: true);
         }
+
+        UpdateExpandedPointerMonitor();
     }
 
     public void Collapse(bool force = false)
@@ -438,6 +442,8 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        StopExpandedPointerMonitor();
 
         if (ViewModel is { } viewModel)
         {
@@ -481,8 +487,11 @@ public partial class MainWindow : Window
         if (!enabled)
         {
             CancelPendingCollapse();
+            StopExpandedPointerMonitor();
             return;
         }
+
+        UpdateExpandedPointerMonitor();
 
         if (!_isDragging &&
             !IsMouseOver &&
@@ -634,25 +643,143 @@ public partial class MainWindow : Window
             () =>
             {
                 _pendingCollapseOperation = null;
-                if (_isDragging ||
-                    IsPointerInsideWindowBounds() ||
-                    ViewModel is not
-                    {
-                        AutoCollapseEnabled: true,
-                        IsPinned: false,
-                        IsExpanded: true,
-                    })
-                {
-                    return;
-                }
-
-                // The native cursor position is authoritative here. WPF can
-                // leave IsMouseOver true for one routed-input turn after a
-                // captured drag ends at a monitor edge, even though the
-                // pointer is already outside the HWND.
-                Collapse();
+                TryCompleteAutoCollapse(allowPointerRecheck: true);
             },
             DispatcherPriority.Input);
+    }
+
+    private void TryCompleteAutoCollapse(bool allowPointerRecheck)
+    {
+        if (_isDragging ||
+            ViewModel is not
+            {
+                AutoCollapseEnabled: true,
+                IsPinned: false,
+                IsExpanded: true,
+            })
+        {
+            return;
+        }
+
+        var pointerInsideBounds = IsPointerInsideWindowBounds();
+        if (pointerInsideBounds && IsMouseOver)
+        {
+            return;
+        }
+
+        if (pointerInsideBounds && allowPointerRecheck)
+        {
+            // A layered WPF window has a rectangular HWND around a rounded,
+            // transparent surface. MouseLeave can therefore be correct while
+            // the native cursor still lies in a transparent corner. Expansion
+            // can also produce one transient Leave/Enter pair. Give WPF one
+            // short input interval to settle, then trust the combined native
+            // and WPF hit-test result. This timer runs only after disagreement.
+            ScheduleAutoCollapsePointerRecheck();
+            return;
+        }
+
+        // Native bounds defeat stale WPF hover state after a captured drag;
+        // WPF hover state excludes transparent rounded corners inside the HWND.
+        Collapse();
+    }
+
+    private void ScheduleAutoCollapsePointerRecheck()
+    {
+        if (_pendingCollapseRecheckTimer is { IsEnabled: true })
+        {
+            return;
+        }
+
+        var timer = new DispatcherTimer(
+            DispatcherPriority.Input,
+            Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(50),
+        };
+        timer.Tick += AutoCollapsePointerRecheck_OnTick;
+        _pendingCollapseRecheckTimer = timer;
+        timer.Start();
+    }
+
+    private void UpdateExpandedPointerMonitor()
+    {
+        if (_isClosed ||
+            ViewModel is not
+            {
+                AutoCollapseEnabled: true,
+                IsPinned: false,
+                IsExpanded: true,
+            })
+        {
+            StopExpandedPointerMonitor();
+            return;
+        }
+
+        if (_expandedPointerMonitorTimer is { IsEnabled: true })
+        {
+            return;
+        }
+
+        var timer = new DispatcherTimer(
+            DispatcherPriority.Input,
+            Dispatcher)
+        {
+            // Normal MouseLeave handling still collapses on the next UI turn.
+            // This short-lived monitor is only a fallback for a lost routed
+            // event after a layered window expands beside a screen edge.
+            Interval = TimeSpan.FromMilliseconds(125),
+        };
+        timer.Tick += ExpandedPointerMonitor_OnTick;
+        _expandedPointerMonitorTimer = timer;
+        timer.Start();
+    }
+
+    private void ExpandedPointerMonitor_OnTick(object? sender, EventArgs e)
+    {
+        if (_isClosed ||
+            ViewModel is not
+            {
+                AutoCollapseEnabled: true,
+                IsPinned: false,
+                IsExpanded: true,
+            })
+        {
+            StopExpandedPointerMonitor();
+            return;
+        }
+
+        TryCompleteAutoCollapse(allowPointerRecheck: false);
+    }
+
+    private void StopExpandedPointerMonitor()
+    {
+        if (_expandedPointerMonitorTimer is not { } timer)
+        {
+            return;
+        }
+
+        timer.Stop();
+        timer.Tick -= ExpandedPointerMonitor_OnTick;
+        _expandedPointerMonitorTimer = null;
+    }
+
+    private void AutoCollapsePointerRecheck_OnTick(
+        object? sender,
+        EventArgs e)
+    {
+        if (sender is DispatcherTimer timer)
+        {
+            timer.Stop();
+            timer.Tick -= AutoCollapsePointerRecheck_OnTick;
+        }
+
+        if (ReferenceEquals(_pendingCollapseRecheckTimer, sender))
+        {
+            _pendingCollapseRecheckTimer = null;
+        }
+
+        TryCompleteAutoCollapse(allowPointerRecheck: false);
     }
 
     private void CancelPendingCollapse()
@@ -666,6 +793,12 @@ public partial class MainWindow : Window
         }
 
         _pendingCollapseOperation = null;
+        if (_pendingCollapseRecheckTimer is { } timer)
+        {
+            timer.Stop();
+            timer.Tick -= AutoCollapsePointerRecheck_OnTick;
+            _pendingCollapseRecheckTimer = null;
+        }
     }
 
     private bool IsPointerInsideWindowBounds()
@@ -1142,15 +1275,21 @@ public partial class MainWindow : Window
                     ShowCollapsedVisual();
                     ApplyWindowState(expanded: false);
                 }
+                UpdateExpandedPointerMonitor();
                 break;
             case nameof(MainViewModel.IsPinned):
                 if (ViewModel?.IsPinned == true)
                 {
+                    StopExpandedPointerMonitor();
                     Expand();
                 }
-                else if (!IsMouseOver)
+                else
                 {
-                    QueueAutoCollapse();
+                    UpdateExpandedPointerMonitor();
+                    if (!IsMouseOver)
+                    {
+                        QueueAutoCollapse();
+                    }
                 }
                 break;
             case nameof(MainViewModel.IsWeeklyQuotaOverlayOpen):
@@ -1564,6 +1703,7 @@ public partial class MainWindow : Window
     {
         _isClosed = true;
         CancelPendingCollapse();
+        StopExpandedPointerMonitor();
         ++_backdropRefreshGeneration;
         CancelRunningBackdropRefresh();
         if (_pendingBackdropRefreshOperation is

@@ -4,7 +4,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
 
-Current stable release: **v1.2.0**. Read this page in English or switch to the
+Current stable release: **v1.2.1**. Read this page in English or switch to the
 [Chinese README](README.md).
 
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota

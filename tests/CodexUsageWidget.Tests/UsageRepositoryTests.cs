@@ -114,6 +114,107 @@ public sealed class UsageRepositoryTests
     }
 
     [Fact]
+    public async Task IndexFile_ConcurrentAppendPersistsMetadataBeyondCheckpoint()
+    {
+        using var temporary = new TemporaryDirectory();
+        var repository = await CreateRepositoryAsync(temporary);
+        var logPath = temporary.GetPath($"rollout-live-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(
+            2026,
+            8,
+            16,
+            1,
+            0,
+            0,
+            TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 60, 0, 20, 5));
+
+        var appended = false;
+        var appendedLine = TestLog.TokenCount(
+            timestamp.AddSeconds(1),
+            150,
+            90,
+            0,
+            30,
+            8);
+        var result = await repository.IndexFileAsync(
+            logPath,
+            false,
+            _ =>
+            {
+                if (appended)
+                {
+                    return;
+                }
+
+                appended = true;
+                File.AppendAllText(logPath, appendedLine + "\n");
+            });
+
+        var actualLength = new FileInfo(logPath).Length;
+        var metadata = Assert.Single(
+            await repository.LoadIndexedFileMetadataAsync()).Value;
+        var snapshot = await repository.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddMinutes(1));
+
+        Assert.True(appended);
+        Assert.Equal(actualLength, result.CurrentOffset);
+        Assert.True(result.IndexedFileLength >= result.CurrentOffset);
+        Assert.True(metadata.FileLength >= metadata.ProcessedOffset);
+        Assert.Equal(180, snapshot.Summary.Total.TotalTokens);
+    }
+
+    [Fact]
+    public async Task Initialize_RepairsLegacyConcurrentAppendLengthWithoutDataLoss()
+    {
+        using var temporary = new TemporaryDirectory();
+        var databasePath = temporary.GetPath("usage-append-race.db");
+        var logPath = temporary.GetPath($"rollout-append-race-{RootId}.jsonl");
+        var timestamp = new DateTimeOffset(
+            2026,
+            8,
+            16,
+            2,
+            0,
+            0,
+            TimeSpan.Zero);
+        await TestLog.WriteLinesAsync(
+            logPath,
+            TestLog.SessionMeta(RootId, RootId),
+            TestLog.TokenCount(timestamp, 100, 50, 0, 20, 5));
+
+        var original = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await original.InitializeAsync();
+        var indexed = await original.IndexFileAsync(logPath, false);
+
+        await using (var connection = new SqliteConnection(
+                         $"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var damage = connection.CreateCommand();
+            damage.CommandText =
+                "UPDATE file_state SET file_length = processed_offset - 1;";
+            Assert.Equal(1, await damage.ExecuteNonQueryAsync());
+        }
+
+        var reopened = new UsageRepository(databasePath, TimeZoneInfo.Utc);
+        await reopened.InitializeAsync();
+        var metadata = Assert.Single(
+            await reopened.LoadIndexedFileMetadataAsync()).Value;
+        var snapshot = await reopened.QueryPeriodAsync(
+            UsagePeriod.All,
+            timestamp.AddMinutes(1));
+
+        Assert.Equal(indexed.CurrentOffset, metadata.ProcessedOffset);
+        Assert.Equal(metadata.ProcessedOffset, metadata.FileLength);
+        Assert.Equal(120, snapshot.Summary.Total.TotalTokens);
+    }
+
+    [Fact]
     public async Task IndexFile_PersistsHighWaterAcrossIncrementalRollback()
     {
         using var temporary = new TemporaryDirectory();
