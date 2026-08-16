@@ -103,6 +103,11 @@ public sealed class DashboardController : IAsyncDisposable
             source,
             activity,
             cancellationToken);
+        using var indexRefreshCancellation =
+            CreatePanelIndexRefreshCancellation(
+                request,
+                cancellationToken);
+        var indexRefreshToken = indexRefreshCancellation.Token;
         var target = viewModel.GetPeriod(MapPeriod(period));
         await SetPeriodLoadingAsync(target, true, request.Token);
 
@@ -110,8 +115,17 @@ public sealed class DashboardController : IAsyncDisposable
         var historyBuildVisible = false;
         try
         {
-            await indexGate.WaitAsync(request.Token);
+            // Once a user action starts an index catch-up, let it finish even
+            // if the hover panel closes. The panel token still cancels the
+            // following query/UI work, while source, display-dormancy, Home
+            // switch, caller, and application shutdown tokens can stop IO.
+            await indexGate.WaitAsync(indexRefreshToken);
             gateEntered = true;
+
+            if (IsSupersededPanelRefresh(request))
+            {
+                return;
+            }
 
             var service = indexService;
             if (service is null || !IsCurrentSource(request.Source))
@@ -119,7 +133,8 @@ public sealed class DashboardController : IAsyncDisposable
                 return;
             }
 
-            historyBuildVisible = service.RequiresHistoryBuild;
+            historyBuildVisible =
+                service.RequiresHistoryBuild || !target.IsLoaded;
             if (historyBuildVisible)
             {
                 SetBuildingHistoryState(true);
@@ -127,8 +142,9 @@ public sealed class DashboardController : IAsyncDisposable
 
             SetRefreshingState(true, indexing: true);
             await Task.Run(
-                () => service.RefreshAsync(request.Token),
-                request.Token);
+                () => service.RefreshAsync(indexRefreshToken),
+                indexRefreshToken);
+            request.Token.ThrowIfCancellationRequested();
             SetRefreshingState(true, indexing: false);
 
             var snapshot = await Task.Run(
@@ -170,7 +186,8 @@ public sealed class DashboardController : IAsyncDisposable
             SetLiveState();
         }
         catch (OperationCanceledException) when (
-            request.Token.IsCancellationRequested)
+            request.Token.IsCancellationRequested ||
+            indexRefreshToken.IsCancellationRequested)
         {
         }
         catch (Exception exception) when (IsRecoverable(exception))
@@ -228,6 +245,11 @@ public sealed class DashboardController : IAsyncDisposable
             source,
             activity,
             cancellationToken);
+        using var indexRefreshCancellation =
+            CreatePanelIndexRefreshCancellation(
+                request,
+                cancellationToken);
+        var indexRefreshToken = indexRefreshCancellation.Token;
         await SetWeeklyQuotaLoadingAsync(
             isLoading: true,
             statusKey: viewModel.HasWeeklyQuotaData
@@ -239,8 +261,15 @@ public sealed class DashboardController : IAsyncDisposable
         var historyBuildVisible = false;
         try
         {
-            await indexGate.WaitAsync(request.Token);
+            // Index persistence follows the same rule as period refreshes:
+            // closing the overlay cancels only its query and presentation.
+            await indexGate.WaitAsync(indexRefreshToken);
             gateEntered = true;
+
+            if (IsSupersededPanelRefresh(request))
+            {
+                return;
+            }
 
             var service = indexService;
             if (service is null || !IsCurrentSource(request.Source))
@@ -250,7 +279,9 @@ public sealed class DashboardController : IAsyncDisposable
 
             // This full index pass is intentionally tied to the explicit
             // overlay click. The collapsed widget never invokes this path.
-            historyBuildVisible = service.RequiresHistoryBuild;
+            historyBuildVisible =
+                service.RequiresHistoryBuild ||
+                !viewModel.HasWeeklyQuotaData;
             if (historyBuildVisible)
             {
                 SetBuildingHistoryState(true);
@@ -258,8 +289,9 @@ public sealed class DashboardController : IAsyncDisposable
 
             SetRefreshingState(true, indexing: true);
             await Task.Run(
-                () => service.RefreshAsync(request.Token),
-                request.Token);
+                () => service.RefreshAsync(indexRefreshToken),
+                indexRefreshToken);
+            request.Token.ThrowIfCancellationRequested();
             SetRefreshingState(true, indexing: false);
 
             var timeZone = TimeZoneInfo.Local;
@@ -318,7 +350,8 @@ public sealed class DashboardController : IAsyncDisposable
             SetLiveState();
         }
         catch (OperationCanceledException) when (
-            request.Token.IsCancellationRequested)
+            request.Token.IsCancellationRequested ||
+            indexRefreshToken.IsCancellationRequested)
         {
         }
         catch (Exception exception) when (IsRecoverable(exception))
@@ -1054,6 +1087,28 @@ public sealed class DashboardController : IAsyncDisposable
         // after publishing the new owner and releasing the completion lock.
         previous?.Cancel();
         return next;
+    }
+
+    private CancellationTokenSource CreatePanelIndexRefreshCancellation(
+        PanelRefreshRequest request,
+        CancellationToken callerToken) =>
+        CancellationTokenSource.CreateLinkedTokenSource(
+            lifetime.Token,
+            request.Source.Token,
+            request.Activity.CancellationToken,
+            callerToken);
+
+    private bool IsSupersededPanelRefresh(PanelRefreshRequest request)
+    {
+        lock (panelRefreshLock)
+        {
+            // Collapse keeps the same cancelled request published until its
+            // finally block, so its already-triggered index pass continues.
+            // A newer tab/refresh request publishes a different owner and is
+            // responsible for the catch-up instead.
+            return request.Token.IsCancellationRequested &&
+                   !ReferenceEquals(panelRefreshRequest, request);
+        }
     }
 
     private void CompletePanelRefresh(PanelRefreshRequest request)
