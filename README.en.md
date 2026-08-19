@@ -4,7 +4,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
 
-Current stable release: **v1.2.1**. Read this page in English or switch to the
+Current stable release: **v1.2.2**. Read this page in English or switch to the
 [Chinese README](README.md).
 
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota
@@ -37,6 +37,11 @@ Hovering expands the selected style directly into a 420×540 detail panel,
 with no short-lived intermediate state. The panel can be pinned, or it
 collapses immediately back to the selected style when the pointer leaves.
 New installations default to the circle.
+
+During a Glow expansion, the original 32×32 footprint remains a temporary
+hover-hysteresis zone. A pointer resting over a transparent rounded corner of
+the expanded panel therefore stays stable instead of repeatedly expanding and
+collapsing. Circle and Capsule hover behavior remains unchanged.
 
 The collapsed indicator is the fixed position anchor. The panel expands to the
 right when space is available and to the left otherwise; it expands upward

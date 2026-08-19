@@ -356,6 +356,45 @@ public sealed class DisplayPowerLifecycleContractTests
     }
 
     [Fact]
+    public void GlowHoverExpansion_RetainsOriginalTriggerUntilCollapse()
+    {
+        string source = ReadRepositoryFile(MainWindowPath);
+
+        Assert.Contains(
+            "private NativeRect? _glowHoverTriggerBounds;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CaptureGlowHoverTriggerBounds();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_collapsedMode != CollapsedWidgetMode.Glow",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (ShouldRetainExpandedForGlowTrigger())",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ClearGlowHoverTriggerBounds();",
+            source,
+            StringComparison.Ordinal);
+
+        int retentionCheck = source.IndexOf(
+            "if (ShouldRetainExpandedForGlowTrigger())",
+            StringComparison.Ordinal);
+        int nativeWindowCheck = source.IndexOf(
+            "var pointerInsideBounds = IsPointerInsideWindowBounds();",
+            retentionCheck,
+            StringComparison.Ordinal);
+        Assert.True(retentionCheck >= 0);
+        Assert.True(
+            nativeWindowCheck > retentionCheck,
+            "Glow trigger hysteresis must run before rounded-window hover checks.");
+    }
+
+    [Fact]
     public void DashboardUiNotifications_AreIgnoredAfterDispatcherShutdown()
     {
         string source = ReadRepositoryFile(DashboardControllerPath);

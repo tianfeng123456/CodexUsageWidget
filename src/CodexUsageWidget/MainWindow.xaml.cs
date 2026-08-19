@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private DispatcherOperation? _pendingCollapseOperation;
     private DispatcherTimer? _pendingCollapseRecheckTimer;
     private DispatcherTimer? _expandedPointerMonitorTimer;
+    private NativeRect? _glowHoverTriggerBounds;
     private IntPtr _dragWindowHandle;
     private NativePoint _dragStartCursor;
     private int _dragStartWindowLeft;
@@ -154,6 +155,7 @@ public partial class MainWindow : Window
         }
 
         _collapsedMode = normalized;
+        ClearGlowHoverTriggerBounds();
         if (ViewModel?.IsExpanded == true)
         {
             ShowExpandedVisual();
@@ -444,6 +446,7 @@ public partial class MainWindow : Window
         }
 
         StopExpandedPointerMonitor();
+        ClearGlowHoverTriggerBounds();
 
         if (ViewModel is { } viewModel)
         {
@@ -535,6 +538,7 @@ public partial class MainWindow : Window
         var wasExpanded = ViewModel?.IsExpanded == true;
         if (!wasExpanded && ViewModel is { } viewModel)
         {
+            CaptureGlowHoverTriggerBounds();
             viewModel.SelectedPeriod = viewModel.GetPeriod(UsagePeriodKind.Today);
         }
 
@@ -658,6 +662,15 @@ public partial class MainWindow : Window
                 IsExpanded: true,
             })
         {
+            return;
+        }
+
+        if (ShouldRetainExpandedForGlowTrigger())
+        {
+            // The 32x32 glow can sit over a transparent rounded corner after
+            // the HWND grows to 420x540. Keep its original hover footprint
+            // active for this expansion so a stationary pointer cannot cause
+            // an expand/collapse loop. Circle and capsule behavior is unchanged.
             return;
         }
 
@@ -813,6 +826,44 @@ public partial class MainWindow : Window
                cursor.Y < windowRect.Bottom;
     }
 
+    private void CaptureGlowHoverTriggerBounds()
+    {
+        _glowHoverTriggerBounds = null;
+        if (_collapsedMode != CollapsedWidgetMode.Glow)
+        {
+            return;
+        }
+
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != IntPtr.Zero &&
+            GetWindowRect(handle, out var bounds) &&
+            bounds.Right > bounds.Left &&
+            bounds.Bottom > bounds.Top)
+        {
+            _glowHoverTriggerBounds = bounds;
+        }
+    }
+
+    private bool ShouldRetainExpandedForGlowTrigger()
+    {
+        if (_collapsedMode != CollapsedWidgetMode.Glow ||
+            _glowHoverTriggerBounds is not { } bounds ||
+            !GetCursorPos(out var cursor))
+        {
+            return false;
+        }
+
+        return cursor.X >= bounds.Left &&
+               cursor.X < bounds.Right &&
+               cursor.Y >= bounds.Top &&
+               cursor.Y < bounds.Bottom;
+    }
+
+    private void ClearGlowHoverTriggerBounds()
+    {
+        _glowHoverTriggerBounds = null;
+    }
+
     private void DragSurface_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         var pointer = e.GetPosition(this);
@@ -835,6 +886,7 @@ public partial class MainWindow : Window
         }
 
         CancelPendingCollapse();
+        ClearGlowHoverTriggerBounds();
         e.Handled = true;
         _dragWindowHandle = handle;
         _dragStartWindowLeft = windowRect.Left;
@@ -1272,6 +1324,7 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    ClearGlowHoverTriggerBounds();
                     ShowCollapsedVisual();
                     ApplyWindowState(expanded: false);
                 }
@@ -1677,6 +1730,7 @@ public partial class MainWindow : Window
 
         if (ViewModel?.IsExpanded == true)
         {
+            ClearGlowHoverTriggerBounds();
             // Preserve the edge chosen during automatic expansion. When a
             // right-edge or bottom-edge idle surface expands left/up, its
             // anchor is offset from the panel's top-left. Keeping that offset
