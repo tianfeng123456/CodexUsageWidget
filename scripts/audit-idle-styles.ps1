@@ -254,6 +254,26 @@ function Set-PointerInside {
     }
 }
 
+function Set-PointerAtRelativePosition {
+    param(
+        $Measurement,
+        [ValidateRange(0.0, 1.0)]
+        [double]$HorizontalFraction,
+        [ValidateRange(0.0, 1.0)]
+        [double]$VerticalFraction)
+
+    $targetX = [int][Math]::Round(
+        $Measurement.Left +
+        (($Measurement.PhysicalWidth - 1) * $HorizontalFraction))
+    $targetY = [int][Math]::Round(
+        $Measurement.Top +
+        (($Measurement.PhysicalHeight - 1) * $VerticalFraction))
+    [CodexIdleStyleAuditNative]::SetCursorPos($targetX, $targetY) |
+        Out-Null
+    [CodexIdleStyleAuditNative]::NotifyMouseMove()
+    Start-Sleep -Milliseconds 30
+}
+
 function Set-PointerOutside {
     param($Measurement)
 
@@ -480,6 +500,88 @@ try {
                 -TimeoutMilliseconds $StateTimeoutMilliseconds `
                 -Phase "$($style.Mode) recollapse"
 
+            $edgeHoverChecks = New-Object System.Collections.ArrayList
+            if ($style.Mode -eq 'Glow') {
+                foreach ($probe in @(
+                        [ordered]@{ Name = 'top-left'; X = 0.22; Y = 0.22 },
+                        [ordered]@{ Name = 'top-right'; X = 0.78; Y = 0.22 },
+                        [ordered]@{ Name = 'bottom-left'; X = 0.22; Y = 0.78 },
+                        [ordered]@{ Name = 'bottom-right'; X = 0.78; Y = 0.78 })) {
+                    Set-PointerOutside -Measurement $recollapsed
+                    $recollapsed = Wait-ForLogicalSize `
+                        -WindowHandle $handle `
+                        -Width $style.Width `
+                        -Height $style.Height `
+                        -TimeoutMilliseconds $StateTimeoutMilliseconds `
+                        -Phase "Glow $($probe.Name) setup"
+                    Set-PointerAtRelativePosition `
+                        -Measurement $recollapsed `
+                        -HorizontalFraction $probe.X `
+                        -VerticalFraction $probe.Y
+                    $probeExpanded = Wait-ForLogicalSize `
+                        -WindowHandle $handle `
+                        -Width 420 `
+                        -Height 540 `
+                        -TimeoutMilliseconds $StateTimeoutMilliseconds `
+                        -Phase "Glow $($probe.Name) expansion"
+
+                    $unstableSamples = New-Object System.Collections.ArrayList
+                    $stabilityWatch = [Diagnostics.Stopwatch]::StartNew()
+                    while ($stabilityWatch.ElapsedMilliseconds -lt 700) {
+                        $sample = Get-WindowMeasurement `
+                            -WindowHandle $handle
+                        if (-not (Test-LogicalSize $sample 420 540)) {
+                            $unstableSamples.Add([ordered]@{
+                                    elapsedMilliseconds =
+                                        $stabilityWatch.ElapsedMilliseconds
+                                    logicalWidth = [Math]::Round(
+                                        $sample.LogicalWidth,
+                                        1)
+                                    logicalHeight = [Math]::Round(
+                                        $sample.LogicalHeight,
+                                        1)
+                                }) | Out-Null
+                        }
+                        Start-Sleep -Milliseconds 10
+                    }
+                    $stabilityWatch.Stop()
+
+                    if ($unstableSamples.Count -gt 0) {
+                        throw (
+                            "Glow $($probe.Name) hover oscillated during " +
+                            'the 700 ms stability dwell.')
+                    }
+
+                    $edgeHoverChecks.Add([ordered]@{
+                            probe = $probe.Name
+                            status = 'PASS'
+                            dwellMilliseconds = 700
+                            unstableSamples = 0
+                        }) | Out-Null
+                    Set-PointerInside -Measurement $probeExpanded
+                    $probeExpanded = Wait-ForLogicalSize `
+                        -WindowHandle $handle `
+                        -Width 420 `
+                        -Height 540 `
+                        -TimeoutMilliseconds $StateTimeoutMilliseconds `
+                        -Phase "Glow $($probe.Name) pointer transfer"
+                    Start-Sleep -Milliseconds 150
+                    $probeExpanded = Wait-ForLogicalSize `
+                        -WindowHandle $handle `
+                        -Width 420 `
+                        -Height 540 `
+                        -TimeoutMilliseconds $StateTimeoutMilliseconds `
+                        -Phase "Glow $($probe.Name) settled pointer transfer"
+                    Set-PointerOutside -Measurement $probeExpanded
+                    $recollapsed = Wait-ForLogicalSize `
+                        -WindowHandle $handle `
+                        -Width $style.Width `
+                        -Height $style.Height `
+                        -TimeoutMilliseconds $StateTimeoutMilliseconds `
+                        -Phase "Glow $($probe.Name) recollapse"
+                }
+            }
+
             $results.Add([ordered]@{
                     mode = $style.Mode
                     status = 'PASS'
@@ -503,6 +605,7 @@ try {
                     observedTopLevelSizes = @($observations)
                     intermediateTopLevelSizes = @($intermediate)
                     directExpansion = $true
+                    edgeHoverChecks = @($edgeHoverChecks)
                     collapsedScreenshot = $collapsedPath
                     expandedScreenshot = $expandedPath
                 }) | Out-Null

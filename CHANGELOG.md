@@ -5,6 +5,33 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-19
+
+### 修复 / Fixed
+
+- 修复 32×32 微光待机图标展开后，鼠标原位置可能落入面板透明圆角，进而触发
+  展开与收起循环闪烁的问题。展开期间会保留本次微光原始区域作为悬停滞回区；
+  收起、切换待机样式或拖动窗口后及时清除。圆环和胶囊的交互保持原样。
+- Fixed a hover oscillation in the 32×32 Glow idle style. The pointer's
+  original position could land inside a transparent rounded corner after the
+  window expanded, repeatedly triggering collapse and expansion. The original
+  Glow footprint now remains a hover-hysteresis zone for that expansion and is
+  cleared on collapse, idle-style changes, or window dragging. Circle and
+  Capsule behavior is unchanged.
+
+### 验证 / Validation
+
+- 350 项自动化测试全部通过，Release 构建为 0 警告、0 错误；NuGet 官方安全
+  公告检查未发现直接或传递依赖中的已知漏洞。
+- 在 200% DPI 下分别从微光的四个边缘区域展开，每个位置连续观察 700ms，尺寸
+  抖动均为 0；随后移入面板、移出收起均通过。圆环与胶囊回归测试同时通过。
+- All 350 automated tests passed, the Release build completed with zero
+  warnings and zero errors, and the official NuGet advisory audit found no
+  known vulnerabilities in direct or transitive dependencies.
+- At 200% DPI, all four Glow edge probes remained stable for 700ms with zero
+  size oscillations. Pointer transfer into the panel and leave-to-collapse
+  also passed, together with Circle and Capsule regression coverage.
+
 ## [1.2.1] - 2026-08-16
 
 ### 修复 / Fixed
@@ -176,6 +203,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - 首次公开版本。
 - First public release.
 
+[1.2.2]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/tianfeng123456/CodexUsageWidget/compare/v1.1.0...v1.1.1
