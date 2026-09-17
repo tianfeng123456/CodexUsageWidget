@@ -4,11 +4,8 @@
 
 [![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
 
-Current stable release: **v1.2.2**. Read this page in English or switch to the
+Current stable release: **v1.2.3**. Read this page in English or switch to the
 [Chinese README](README.md).
-
-The **v1.2.3** quota-reset fix has been verified locally and is not yet released;
-see the [changelog](CHANGELOG.md).
 
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota
 and per-task token usage. It is built with WPF, .NET 8, SQLite, and MVVM, and
@@ -20,11 +17,14 @@ not need to install .NET.
 
 ## Download
 
-Download `CodexUsageWidget.exe` from
+Download `CodexUsageWidget-v1.2.3-win-x64.exe` from
 [GitHub Releases](../../releases/latest). It is a self-contained Windows x64
 single file and does not require a separate .NET installation. The current
 binary is not code-signed, so Windows SmartScreen may warn on first launch;
 verify the SHA-256 published on the Release page before running it.
+
+To upgrade, exit the previous version from its tray menu, then run the new EXE.
+Existing settings and usage indexes are preserved.
 
 `dist\CodexUsageWidget.exe` is a local build output and is intentionally not
 stored in Git history.

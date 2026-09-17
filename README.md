@@ -4,9 +4,7 @@
 
 [![最新版本](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](../../releases/latest)
 
-当前稳定版：**v1.2.2**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
-
-本地已验证 **v1.2.3** 的额度重置修复，尚未发布；见 [更新日志](CHANGELOG.md)。
+当前稳定版：**v1.2.3**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
 
 一个完全在本机运行的 Windows 11 桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗。应用采用 WPF、.NET 8、SQLite 和 MVVM，发布为 Windows x64 自包含单文件，使用者无需预装 .NET。
 
@@ -15,9 +13,11 @@
 ## 下载
 
 普通用户请从 [GitHub Releases](../../releases/latest) 下载
-`CodexUsageWidget.exe`。它是 Windows x64 自包含单文件，无需预装 .NET。
+`CodexUsageWidget-v1.2.3-win-x64.exe`。它是 Windows x64 自包含单文件，无需预装 .NET。
 当前 EXE 尚未进行代码签名，因此 Windows SmartScreen 首次运行时可能显示提醒；
 请核对 Release 页面公布的 SHA-256 后再运行。
+
+升级时先从托盘菜单退出旧版，再运行新 EXE。已有设置和用量索引会继续使用。
 
 仓库中的 `dist\CodexUsageWidget.exe` 只由本地构建产生，不进入 Git 历史。
 版本变化见 [CHANGELOG](CHANGELOG.md)。

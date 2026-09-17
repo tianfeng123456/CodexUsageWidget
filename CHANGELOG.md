@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-09-17
+
 ### 修复 / Fixed
 
 - 主动提前重置额度时，按已观测到的周期切换累计重置前后的日消耗；支持一天多次
@@ -16,6 +18,15 @@ This project follows [Semantic Versioning](https://semver.org/).
   schedules can no longer replace the new schedule.
 - Scale both weekly-history charts to at least 100% and the largest visible
   daily total, so consumption above 100% remains proportionate.
+
+### 验证 / Validation
+
+- 358 项自动化测试全部通过，包含 8 项新增重置回归用例；严格 Release 构建与发布通过。
+- 真实日志回放、当前 GPT-6 日志字段解析、WPF 图表及发布 EXE 的桌面显示检查通过。
+- All 358 automated tests passed, including eight new reset regression cases;
+  strict Release build and publication completed successfully.
+- Real log replay, current GPT-6 log parsing, WPF chart rendering, and the
+  released executable's desktop display were verified.
 
 ## [1.2.2] - 2026-08-19
 
