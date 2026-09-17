@@ -42,7 +42,7 @@
     <system:String x:Key="Loc.WeeklyQuotaSubtitle">每日消耗 · 较前日变化</system:String>
     <system:String x:Key="Loc.Updating">正在更新</system:String>
     <system:String x:Key="Loc.LoadingWeeklyHistory">正在读取周额度历史…</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaFootnote">基于日志观测的重置周期增量</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaFootnote">按日志观测累计重置前后消耗</system:String>
     <system:String x:Key="Loc.RemainingAutomationFormat">Codex 剩余额度 {0}</system:String>
 
     <system:String x:Key="Loc.SettingsWindowTitle">Codex 用量设置</system:String>

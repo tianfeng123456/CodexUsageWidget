@@ -1681,6 +1681,8 @@ public sealed class DashboardController : IAsyncDisposable
                 })
             .ToArray();
 
+        var chartMaximum = Math.Max(100d, values.Max(
+            static value => value.ConsumedPercentagePoints ?? 0d));
         return values
             .Select(
                 value =>
@@ -1690,7 +1692,7 @@ public sealed class DashboardController : IAsyncDisposable
                         ? 3d
                         : 6d + (32d *
                             Math.Clamp(
-                                (value.ConsumedPercentagePoints ?? 0d) / 100d,
+                                (value.ConsumedPercentagePoints ?? 0d) / chartMaximum,
                                 0,
                                 1));
                     return new WeeklyQuotaDayViewModel

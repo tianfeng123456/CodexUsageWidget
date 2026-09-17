@@ -11,7 +11,7 @@ namespace CodexUsageWidget.Controls;
 
 /// <summary>
 /// Lightweight retained-mode rendering for the seven observed weekly-quota
-/// closing values. It redraws only when data or size changes and has no timer.
+/// daily consumption values. It redraws only when data or size changes and has no timer.
 /// </summary>
 public sealed class WeeklyQuotaSparkline : FrameworkElement
 {
@@ -103,6 +103,12 @@ public sealed class WeeklyQuotaSparkline : FrameworkElement
         }
 
         var days = ItemsSource?.Take(7).ToArray() ?? [];
+        var chartMaximum = Math.Max(100d, days
+            .Where(static day => day.IsObserved &&
+                day.DailyConsumedPercent is { } value && double.IsFinite(value))
+            .Select(static day => day.DailyConsumedPercent!.Value)
+            .DefaultIfEmpty(100d)
+            .Max());
         var count = Math.Max(7, days.Length);
         var horizontalPadding = Math.Max(2d, DotRadius + 1d);
         var verticalPadding = Math.Max(2d, DotRadius + 1d);
@@ -139,9 +145,9 @@ public sealed class WeeklyQuotaSparkline : FrameworkElement
                 continue;
             }
 
-            var clamped = Math.Clamp(consumed, 0d, 100d);
+            var clamped = Math.Clamp(consumed, 0d, chartMaximum);
             var y = verticalPadding +
-                    usableHeight * (1d - clamped / 100d);
+                    usableHeight * (1d - clamped / chartMaximum);
             var point = new Point(x, y);
             if (previous is { } before)
             {

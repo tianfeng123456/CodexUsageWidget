@@ -7,6 +7,9 @@
 Current stable release: **v1.2.2**. Read this page in English or switch to the
 [Chinese README](README.md).
 
+The **v1.2.3** quota-reset fix has been verified locally and is not yet released;
+see the [changelog](CHANGELOG.md).
+
 A local-only Windows 11 desktop widget for monitoring remaining Codex quota
 and per-task token usage. It is built with WPF, .NET 8, SQLite, and MVVM, and
 is published as a self-contained, single-file Windows x64 executable. Users do
@@ -263,12 +266,15 @@ session_index.jsonl
   and not a value inherited from the previous day.
 - Within each observed reset window, daily consumption advances only from a
   monotonic high-water mark. `reset_at` values within 60 seconds are clustered
-  into one logical window. Each day follows the timeline from its final valid
-  quota observation and reports only that timeline's start-to-end high-water
-  increase. This prevents parallel timelines from duplicating usage or assigning
-  an entire window total to today. Stale lower concurrent snapshots and reset
-  drops do not create negative usage. Daily change compares the two
-  daily-consumption values only when both are available.
+  into one logical window. Scheduled resets and observed early resets connect
+  consecutive windows, preserving every observed segment of daily consumption,
+  including multiple resets in a day. An early reset requires a newer schedule
+  starting between consecutive observations and a lower used value (or two zero
+  values). Late writes from a superseded window are ignored. Unrelated overlapping
+  schedules still follow the day's last valid observation rather than being
+  summed. Daily totals can exceed 100%; both charts scale to the largest visible
+  daily total, with a minimum scale of 100%. Daily change compares the two
+  daily-consumption values only when both have reliable baselines.
 - Historical observations already present in local logs or the index can be
   viewed immediately. New observations are incrementally indexed only after
   an explicit statistics refresh or opening the weekly-quota detail. A blank

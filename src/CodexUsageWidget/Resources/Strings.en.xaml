@@ -42,7 +42,7 @@
     <system:String x:Key="Loc.WeeklyQuotaSubtitle">Daily usage · Change from previous day</system:String>
     <system:String x:Key="Loc.Updating">Updating</system:String>
     <system:String x:Key="Loc.LoadingWeeklyHistory">Reading weekly-quota history…</system:String>
-    <system:String x:Key="Loc.WeeklyQuotaFootnote">Reset-window increments reconstructed from direct logs</system:String>
+    <system:String x:Key="Loc.WeeklyQuotaFootnote">Observed consumption across resets</system:String>
     <system:String x:Key="Loc.RemainingAutomationFormat">Codex remaining quota {0}</system:String>
 
     <system:String x:Key="Loc.SettingsWindowTitle">Codex Usage Settings</system:String>

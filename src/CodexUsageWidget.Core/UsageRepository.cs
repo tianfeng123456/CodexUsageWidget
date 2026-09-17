@@ -1034,6 +1034,7 @@ public sealed class UsageRepository
         var authoritativeTimelineByDate =
             new Dictionary<DateOnly, WeeklyRateLimitTimelineState>();
         WeeklyRateLimitTimelineState? unknownResetTimeline = null;
+        WeeklyRateLimitTimelineState? latestAcceptedTimeline = null;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1121,6 +1122,14 @@ public sealed class UsageRepository
             }
 
             var epoch = timeline.Epoch;
+            if (timeline.SupersededAt is { } supersededAt &&
+                observation.Timestamp >= supersededAt)
+            {
+                // An early reset retires the old schedule before its original
+                // resets_at. Late writes must not bring that schedule back.
+                continue;
+            }
+
             if (epoch.LastAcceptedTimestamp == observation.Timestamp &&
                 epoch.LastAcceptedUsedPercent == observation.UsedPercent)
             {
@@ -1135,6 +1144,14 @@ public sealed class UsageRepository
                 continue;
             }
 
+            if (epoch.LastAcceptedTimestamp is null &&
+                latestAcceptedTimeline is { } previousTimeline &&
+                IsObservedEarlyWeeklyReset(previousTimeline, timeline, observation))
+            {
+                timeline.Predecessor = previousTimeline;
+                previousTimeline.SupersededAt = observation.Timestamp;
+            }
+
             var increase =
                 observation.UsedPercent - epoch.HighWaterUsedPercent;
             if (observation.UsedPercent > epoch.HighWaterUsedPercent)
@@ -1144,6 +1161,7 @@ public sealed class UsageRepository
 
             epoch.LastAcceptedTimestamp = observation.Timestamp;
             epoch.LastAcceptedUsedPercent = observation.UsedPercent;
+            latestAcceptedTimeline = timeline;
 
             if (observation.Timestamp < fromUtc)
             {
@@ -1201,28 +1219,40 @@ public sealed class UsageRepository
                 authorityDay,
             };
 
-            // Preserve a genuine reset occurring inside a local day, but do
-            // not add unrelated overlapping schedules. A predecessor is
-            // included only when its reset instant is the selected timeline's
-            // exact seven-day window start.
-            if (authority.Cluster is { } authorityCluster)
+            // Follow the observed reset chain, including multiple early resets
+            // in one day. Unrelated overlapping schedules are never summed.
+            var currentTimeline = authority;
+            var visited = new HashSet<WeeklyRateLimitTimelineState> { authority };
+            while (currentTimeline.Cluster is { } currentCluster)
             {
                 var windowStart =
-                    authorityCluster.CanonicalResetAt.AddMinutes(
+                    currentCluster.CanonicalResetAt.AddMinutes(
                         -WeeklyRateLimitWindowMinutes);
-                if (ToLocalDate(windowStart) == day.LocalDate &&
-                    resetClusters.TryGetPredecessor(
-                        authorityCluster,
-                        out var predecessorCluster) &&
-                    timelines.TryGetValue(
-                        predecessorCluster,
-                        out var predecessorTimeline) &&
-                    predecessorTimeline.Days.TryGetValue(
+                if (ToLocalDate(windowStart) != day.LocalDate)
+                {
+                    break;
+                }
+
+                var predecessorTimeline = currentTimeline.Predecessor;
+                if (predecessorTimeline is null &&
+                    resetClusters.TryGetPredecessor(currentCluster, out var predecessorCluster))
+                {
+                    timelines.TryGetValue(predecessorCluster, out predecessorTimeline);
+                }
+
+                if (predecessorTimeline is null || !visited.Add(predecessorTimeline))
+                {
+                    break;
+                }
+
+                if (predecessorTimeline.Days.TryGetValue(
                         day.LocalDate,
                         out var predecessorDay))
                 {
                     components.Insert(0, predecessorDay);
                 }
+
+                currentTimeline = predecessorTimeline;
             }
 
             day.ConsumedPercentagePoints = components.Sum(
@@ -2658,6 +2688,33 @@ public sealed class UsageRepository
         TokenUsage Usage,
         bool IsArchived);
 
+    private static bool IsObservedEarlyWeeklyReset(
+        WeeklyRateLimitTimelineState previous,
+        WeeklyRateLimitTimelineState current,
+        WeeklyRateLimitObservation observation)
+    {
+        if (previous.Cluster is not { } oldCluster ||
+            current.Cluster is not { } newCluster ||
+            previous.Epoch.LastAcceptedTimestamp is not { } lastAcceptedAt ||
+            newCluster.CanonicalResetAt <=
+                oldCluster.CanonicalResetAt + WeeklyResetTimestampTolerance ||
+            (observation.UsedPercent >= previous.Epoch.HighWaterUsedPercent &&
+             !(observation.UsedPercent == 0d &&
+               previous.Epoch.HighWaterUsedPercent == 0d)))
+        {
+            return false;
+        }
+
+        var newWindowStart = newCluster.CanonicalResetAt.AddMinutes(
+            -WeeklyRateLimitWindowMinutes);
+        // The new window must have started between the previous accepted
+        // observation and this one (allowing the existing timestamp jitter).
+        // A drop on a schedule that started earlier is not reset evidence.
+        return newWindowStart < oldCluster.CanonicalResetAt &&
+               newWindowStart >= lastAcceptedAt - WeeklyResetTimestampTolerance &&
+               newWindowStart <= observation.Timestamp + WeeklyResetTimestampTolerance;
+    }
+
     private sealed record WeeklyRateLimitObservation(
         DateTimeOffset Timestamp,
         double UsedPercent,
@@ -2858,6 +2915,10 @@ public sealed class UsageRepository
         public WeeklyResetCluster? Cluster { get; } = cluster;
 
         public WeeklyRateLimitEpochState Epoch { get; } = epoch;
+
+        public WeeklyRateLimitTimelineState? Predecessor { get; set; }
+
+        public DateTimeOffset? SupersededAt { get; set; }
 
         public Dictionary<DateOnly, DailyWeeklyRateLimitUsageBuilder> Days
         {

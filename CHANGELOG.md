@@ -5,6 +5,18 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 修复 / Fixed
+
+- 主动提前重置额度时，按已观测到的周期切换累计重置前后的日消耗；支持一天多次
+  重置，保留缺少起点时的“至少”标记，并阻止已被替代周期的迟到记录覆盖新周期。
+- 周额度柱图与折线共用当前七日最大值作为刻度上限（至少 100%），正确区分多次
+  重置后超过 100% 的日消耗。
+- Preserve observed daily consumption across early/manual resets, including
+  multiple resets per day and partial baselines. Late rows from superseded
+  schedules can no longer replace the new schedule.
+- Scale both weekly-history charts to at least 100% and the largest visible
+  daily total, so consumption above 100% remains proportionate.
+
 ## [1.2.2] - 2026-08-19
 
 ### 修复 / Fixed
