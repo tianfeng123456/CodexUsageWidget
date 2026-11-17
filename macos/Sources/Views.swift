@@ -130,6 +130,9 @@ struct WidgetView: View {
         .clipShape(RoundedRectangle(cornerRadius:model.expanded ? 32 : 100))
         .frame(width:model.expanded ? 420 : model.preferences.idleStyle == "capsule" ? 208 : model.preferences.idleStyle == "glow" ? 32 : 80,
                height:model.expanded ? 540 : model.preferences.idleStyle == "glow" ? 32 : 80)
+        .scaleEffect(model.expanded ? 1 : model.preferences.idleScale)
+        .frame(width:model.expanded ? 420 : WidgetGeometry.idleSize(model.preferences.idleStyle,scale:model.preferences.idleScale).width,
+               height:model.expanded ? 540 : WidgetGeometry.idleSize(model.preferences.idleStyle,scale:model.preferences.idleScale).height)
         .coordinateSpace(name:"widget").onPreferenceChange(HeaderControlsKey.self) { if model.headerControls != $0 { model.headerControls = $0 } }
         .overlay(WindowDragSurface(expanded:model.expanded,controls:model.headerControls,start:startDrag))
         .onHover(perform:hover)
@@ -297,20 +300,15 @@ struct WidgetView: View {
                     BarMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent.opacity(0.18)).cornerRadius(3)
                     LineMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value),series:.value("Segment",String(model.weekly.prefix(i+1).filter { $0.consumedPercentagePoints == nil }.count))).foregroundStyle(accent).lineStyle(StrokeStyle(lineWidth:1.4))
                     PointMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent).symbolSize(14)
+                        .annotation(position:.top,spacing:6) {
+                            Text((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
+                                .font(.system(size:9.5,weight:.medium)).monospacedDigit().foregroundStyle(Color.primary.opacity(0.85)).fixedSize()
+                        }
+                        .accessibilityLabel(day.localDate)
+                        .accessibilityValue((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
                 }
-            }.accessibilityHidden(true).chartXScale(domain:model.weekly.map { String($0.localDate.suffix(5)) })
-                .chartYScale(domain:0...max(100,(model.weekly.compactMap(\.consumedPercentagePoints).max() ?? 0))).frame(height:142)
-            VStack(spacing:9) {
-                HStack { Text(model.t("日期","Date"));Spacer();Text(model.t("消耗","Consumed"));Text(model.t("较前日","Change")).frame(width:65,alignment:.trailing) }.foregroundStyle(.secondary).font(.system(size:9))
-                ForEach(model.weekly) { day in
-                    HStack {
-                        Text(String(day.localDate.suffix(5))).foregroundStyle(.secondary)
-                        Spacer()
-                        Text(day.consumedPercentagePoints.map { (day.isPartial ? "≥ " : "") + String(format:"%.1f%%",$0) } ?? "—")
-                        Text(day.changeFromPreviousDayPercentagePoints.map { String(format:"%+.1f",$0) } ?? "—").foregroundStyle(.secondary).frame(width:65,alignment:.trailing)
-                    }.font(.system(size:11,weight:.light)).monospacedDigit()
-                }
-            }
+            }.chartXScale(domain:model.weekly.map { String($0.localDate.suffix(5)) },range:.plotDimension(padding:24))
+                .chartYScale(domain:0...max(100,(model.weekly.compactMap(\.consumedPercentagePoints).max() ?? 0)*1.15)).frame(height:290)
             Text(model.t("≥ 为可观测部分，无记录的日期留空。","≥ indicates partial observations; missing dates stay blank."))
                 .font(.system(size:9)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
             Spacer(minLength:0)
@@ -343,6 +341,11 @@ struct SettingsView: View {
                 Picker(model.t("待机样式","Idle style"),selection:$model.preferences.idleStyle) {
                     Text(model.t("微光","Glow")).tag("glow"); Text(model.t("圆环","Circle")).tag("circle"); Text(model.t("胶囊","Capsule")).tag("capsule")
                 }
+                Slider(value:$model.preferences.idleScale,in:0.5...1.25,step:0.05) {
+                    Text(model.t("图标大小","Icon size") + " \(Int((model.preferences.idleScale*100).rounded()))%")
+                }.accessibilityIdentifier("IdleIconScaleSlider")
+                Text(model.t("桌面图标实时预览大小；100% 为原始大小。","The desktop icon previews changes live; 100% is the original size."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Slider(value:$model.preferences.transparency,in:0...1) {
                     Text(model.t("玻璃透明度","Transparency") + " \(Int(model.preferences.transparency*100))%")
                 }
@@ -370,7 +373,7 @@ struct SettingsView: View {
                     Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.busy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.4 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.5 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).frame(width:480,height:650)
     }

@@ -75,11 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.asyncAfter(deadline:.now()+12) { [weak self] in self?.capture(path) }
         }
     }
-    var idleSize: NSSize { WidgetGeometry.idleSize(model.preferences.idleStyle) }
+    var idleSize: NSSize { WidgetGeometry.idleSize(model.preferences.idleStyle,scale:model.preferences.idleScale) }
     func position() {
         let screen = NSScreen.screens.first { $0.visibleFrame.contains(NSPoint(x:anchor.x+idleSize.width/2,y:anchor.y+idleSize.height/2)) } ?? NSScreen.main
         guard let screen else { return }
-        panel.setFrame(WidgetGeometry.frame(anchor:&anchor,style:model.preferences.idleStyle,expanded:model.expanded,bounds:screen.visibleFrame),display:true)
+        panel.setFrame(WidgetGeometry.frame(anchor:&anchor,style:model.preferences.idleStyle,expanded:model.expanded,bounds:screen.visibleFrame,scale:model.preferences.idleScale),display:true)
     }
     func setExpanded(_ value: Bool) {
         guard !isDragging, model.expanded != value else { return }
@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     var shouldCheckPointer: Bool {
         model.expanded && !model.pinned && model.preferences.autoCollapse &&
-        !model.paused && panel.isVisible && settingsWindow?.isVisible != true
+        !model.paused && panel.isVisible
     }
     func checkPointer() {
         guard shouldCheckPointer, !isDragging, NSEvent.pressedMouseButtons == 0 else { return }
@@ -177,7 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.level = model.preferences.alwaysOnTop ? .floating : .normal
         let appearance: NSAppearance? = model.preferences.theme == "dark" ? NSAppearance(named:.darkAqua) : model.preferences.theme == "light" ? NSAppearance(named:.aqua) : nil
         panel.appearance = appearance; settingsWindow?.appearance = appearance
-        if old.idleStyle != model.preferences.idleStyle { hoverTrigger = nil; position() }
+        if old.idleStyle != model.preferences.idleStyle || old.idleScale != model.preferences.idleScale {
+            if model.settingsOpen { setExpanded(false) }
+            hoverTrigger = nil; position()
+        }
         if old.home != model.preferences.home { model.snapshot = nil; model.quota = nil; model.weekly = []; if !model.paused { model.start() } }
         if old.pauseOnSleep != model.preferences.pauseOnSleep { updateSleep() }
         syncPointerMonitor(); updateStatus()
@@ -209,6 +212,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func showSettings() {
         collapseWork?.cancel()
+        model.settingsOpen = true
+        setExpanded(false)
+        panel.orderFrontRegardless()
         if settingsWindow == nil {
             let w = NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:650),styleMask:[.titled,.closable],backing:.buffered,defer:false)
             w.delegate = self; w.isReleasedWhenClosed = false; w.contentView = NSHostingView(rootView:SettingsView(model:model)); w.center(); settingsWindow = w
@@ -219,6 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps:true); settingsWindow?.makeKeyAndOrderFront(nil); syncPointerMonitor()
     }
     func windowWillClose(_ notification:Notification) {
+        guard (notification.object as? NSWindow) === settingsWindow else { return }
+        model.settingsOpen = false
         DispatchQueue.main.async { [weak self] in self?.syncPointerMonitor(); self?.hover(false) }
     }
     func subscribe() {

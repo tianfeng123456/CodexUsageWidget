@@ -19,7 +19,29 @@ import Foundation
         let prefs = Preferences()
         let roundtrip = try JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(prefs))
         assert(roundtrip == prefs)
+        var legacyObject = try JSONSerialization.jsonObject(with:JSONEncoder().encode(prefs)) as! [String:Any]
+        legacyObject.removeValue(forKey:"iconScale")
+        legacyObject["x"] = 21.4375; legacyObject["y"] = 670.70703125
+        let legacy = try JSONDecoder().decode(Preferences.self,from:JSONSerialization.data(withJSONObject:legacyObject))
+        assert(legacy.idleScale == 1 && legacy.x == 21.4375 && legacy.y == 670.70703125)
+        var scaled = prefs; scaled.idleScale = 0.65
+        let restoredScale = try JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(scaled))
+        assert(restoredScale.idleScale == 0.65)
+        scaled.idleScale = -10; assert(scaled.idleScale == 0.5)
+        scaled.idleScale = 10; assert(scaled.idleScale == 1.25)
         for style in ["circle","glow","capsule"] {
+            for scale in [0.5,0.65,1.0,1.25] {
+                let base = WidgetGeometry.idleSize(style)
+                let size = WidgetGeometry.idleSize(style,scale:scale)
+                assert(size == CGSize(width:base.width*scale,height:base.height*scale))
+                var anchor = CGPoint(x:1430,y:890)
+                let bounds = CGRect(x:0,y:0,width:1440,height:900)
+                let idle = WidgetGeometry.frame(anchor:&anchor,style:style,expanded:false,bounds:bounds,scale:scale)
+                let expanded = WidgetGeometry.frame(anchor:&anchor,style:style,expanded:true,bounds:bounds,scale:scale)
+                assert(bounds.contains(idle) && bounds.contains(expanded))
+                assert(expanded.size == CGSize(width:420,height:540))
+                assert(WidgetGeometry.frame(anchor:&anchor,style:style,expanded:false,bounds:bounds,scale:scale) == idle)
+            }
             for point in [CGPoint(x:0,y:0),CGPoint(x:1400,y:850),CGPoint(x:-2000,y:40)] {
                 var anchor = point
                 let bounds = CGRect(x:0,y:0,width:1440,height:900)

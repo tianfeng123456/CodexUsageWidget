@@ -17,11 +17,21 @@ import SwiftUI
         }
         model.weekly = days
         for theme in ["light","dark"] {
-            for kind in ["circle","glow","capsule","panel","weekly"] {
+            for kind in ["circle","glow","capsule","panel","weekly","weekly-high"] {
+                for scale in ((kind == "panel" || kind.hasPrefix("weekly")) ? [1.0] : [0.5,0.75,1.0]) {
+                model.preferences.idleScale = scale
                 model.preferences.language = theme == "light" ? "zh" : "en"
-                model.preferences.idleStyle = ["panel","weekly"].contains(kind) ? "circle" : kind
-                model.expanded = ["panel","weekly"].contains(kind); model.showingWeekly = kind == "weekly"
-                let size = model.expanded ? NSSize(width:420,height:540) : WidgetGeometry.idleSize(kind)
+                model.preferences.idleStyle = (kind == "panel" || kind.hasPrefix("weekly")) ? "circle" : kind
+                model.expanded = (kind == "panel" || kind.hasPrefix("weekly")); model.showingWeekly = kind.hasPrefix("weekly")
+                model.weekly = days
+                if kind == "weekly-high" {
+                    model.weekly[0].consumedPercentagePoints = 0
+                    model.weekly[3].consumedPercentagePoints = 160
+                    model.weekly[4].consumedPercentagePoints = 158
+                    model.weekly[5].consumedPercentagePoints = 165
+                    model.weekly[6].consumedPercentagePoints = 162
+                }
+                let size = model.expanded ? NSSize(width:420,height:540) : WidgetGeometry.idleSize(kind,scale:scale)
                 let window = NSWindow(contentRect:NSRect(origin:.zero,size:size),styleMask:.borderless,backing:.buffered,defer:false)
                 window.appearance = NSAppearance(named:theme == "dark" ? .darkAqua : .aqua)
                 let view = NSHostingView(rootView:WidgetView(model:model,settings:{},hover:{_ in},startDrag:{_ in},collapse:{}))
@@ -31,10 +41,11 @@ import SwiftUI
                 guard let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds) else { fatalError("No bitmap") }
                 view.cacheDisplay(in:view.bounds,to:bitmap)
                 guard let png = bitmap.representation(using:.png,properties:[:]) else { fatalError("No PNG") }
-                try png.write(to:output.appendingPathComponent("\(theme)-\(kind).png"))
+                try png.write(to:output.appendingPathComponent("\(theme)-\(kind)-\(Int(scale*100)).png"))
                 window.contentView = nil
+                }
             }
         }
-        print("PASS: 10 native renders, 3 idle styles, fixed 420x540 panel and weekly chart, light/dark, Chinese/English; user settings untouched")
+        print("PASS: 24 native renders at 50%, 75% and 100%, 3 idle styles, fixed 420x540 panel and weekly chart, light/dark, Chinese/English; user settings untouched")
     }
 }

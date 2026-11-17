@@ -1,12 +1,15 @@
 import Foundation
 struct WidgetGeometry {
-    static func idleSize(_ style:String) -> CGSize {
-        switch style { case "glow": return CGSize(width:32,height:32)
-        case "capsule": return CGSize(width:208,height:80)
-        default: return CGSize(width:80,height:80) }
+    static func idleSize(_ style:String, scale:Double = 1) -> CGSize {
+        let factor = scale.isFinite ? min(1.25,max(0.5,scale)) : 1
+        let base: CGSize
+        switch style { case "glow": base = CGSize(width:32,height:32)
+        case "capsule": base = CGSize(width:208,height:80)
+        default: base = CGSize(width:80,height:80) }
+        return CGSize(width:base.width*factor,height:base.height*factor)
     }
-    static func frame(anchor:inout CGPoint, style:String, expanded:Bool, bounds:CGRect) -> CGRect {
-        let idle = idleSize(style)
+    static func frame(anchor:inout CGPoint, style:String, expanded:Bool, bounds:CGRect, scale:Double = 1) -> CGRect {
+        let idle = idleSize(style,scale:scale)
         let size = expanded ? CGSize(width:420,height:540) : idle
         anchor.x = max(bounds.minX,min(anchor.x,bounds.maxX-idle.width))
         anchor.y = max(bounds.minY,min(anchor.y,bounds.maxY-idle.height))

@@ -7,6 +7,12 @@ struct Preferences: Codable, Equatable {
     var theme = "dark"
     var language = "system"
     var idleStyle = "circle"
+    // Optional storage keeps settings written before mac.5 fully compatible.
+    var iconScale: Double? = nil
+    var idleScale: Double {
+        get { let value = iconScale ?? 1; return value.isFinite ? min(1.25,max(0.5,value)) : 1 }
+        set { iconScale = newValue.isFinite ? min(1.25,max(0.5,newValue)) : 1 }
+    }
     var transparency = 0.5
     var alwaysOnTop = true
     var autoCollapse = true
@@ -20,6 +26,7 @@ struct Preferences: Codable, Equatable {
         if !["system","light","dark"].contains(p.theme) { p.theme = "dark" }
         if !["system","zh","en"].contains(p.language) { p.language = "system" }
         if !["circle","glow","capsule"].contains(p.idleStyle) { p.idleStyle = "circle" }
+        if p.iconScale != nil { p.idleScale = p.idleScale }
         p.period = min(3,max(0,p.period)); p.transparency = min(1,max(0,p.transparency))
         return p
     }
@@ -116,6 +123,7 @@ final class Model: ObservableObject {
     @Published var snapshot: Snapshot?
     @Published var weekly: [WeeklyDay] = []
     @Published var headerControls: [CGRect] = []
+    @Published var settingsOpen = false
     @Published var expanded = false
     @Published var pinned = false
     @Published var showingWeekly = false
