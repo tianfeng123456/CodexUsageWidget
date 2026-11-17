@@ -2,27 +2,44 @@
 
 # Codex 用量悬浮窗
 
-macOS Apple Silicon 迁移版现位于 [`macos/`](macos/README.md)，使用原统计引擎和原生 SwiftUI/AppKit 界面。Windows 稳定版仍为 v1.2.3。
-
 [![最新版本](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](../../releases/latest)
 
-当前稳定版：**v1.2.3**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
+Windows 稳定版：**v1.2.3**；Mac 预发布版：**v1.3.0-mac.5**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
 
-一个完全在本机运行的 Windows 11 桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗。应用采用 WPF、.NET 8、SQLite 和 MVVM，发布为 Windows x64 自包含单文件，使用者无需预装 .NET。
+一个完全在本机运行的桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗，支持 Windows 11 和 macOS。Windows 版使用 WPF，Mac 版使用原生 SwiftUI/AppKit，两者共用 C# 统计引擎。发布包均自带运行时，无需预装 .NET。
 
 > 本项目是非官方社区工具，与 OpenAI 不存在隶属、赞助或背书关系。
 
-## 下载
+## 下载与安装
 
-普通用户请从 [GitHub Releases](../../releases/latest) 下载
-`CodexUsageWidget-v1.2.3-win-x64.exe`。它是 Windows x64 自包含单文件，无需预装 .NET。
-当前 EXE 尚未进行代码签名，因此 Windows SmartScreen 首次运行时可能显示提醒；
-请核对 Release 页面公布的 SHA-256 后再运行。
+| 平台 | 版本与系统要求 | 下载 |
+|---|---|---|
+| Mac | v1.3.0-mac.5（预发布）；Apple Silicon（M 系列），macOS 13+ | [Mac 安装包 ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/CodexUsageWidget-v1.3.0-mac.5-arm64.zip) · [Release 说明](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.5) |
+| Windows | v1.2.3（稳定版）；Windows 11 x64 | [Windows EXE](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.2.3/CodexUsageWidget-v1.2.3-win-x64.exe) · [Release 说明](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.2.3) |
+
+### Mac 安装
+
+1. 下载并解压 `CodexUsageWidget-v1.3.0-mac.5-arm64.zip`。
+2. 将 `Codex Usage Widget.app` 拖入“应用程序”（`/Applications`）或个人应用目录（`~/Applications`），然后双击打开。
+3. 应用会显示菜单栏图标和桌面悬浮窗。鼠标移入悬浮窗展开，右键菜单或菜单栏可打开设置。
+
+安装包适用于 Apple Silicon Mac；本次不提供 Intel 安装包。安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。若 macOS 阻止首次打开，可在“系统设置 → 隐私与安全性”中查看并允许打开。下载完整性可用 Release 随附的 [SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/SHA256SUMS.txt) 核对；将它与 ZIP 放在同一目录，在终端运行：
+
+```sh
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+升级时先从菜单栏菜单退出旧版，再替换应用。设置与用量索引保存在 `~/Library/Application Support/CodexUsageWidget/`，替换应用会继续使用这些数据。应用默认读取当前 Mac 的 `~/.codex`，也可在设置中选择 Codex Home；仅统计这台 Mac 能读取的本地历史日志。
+
+Mac 版提供原生玻璃外观、微光 / 圆环 / 胶囊三种待机样式，以及 50%–125% 图标大小实时预览。打开设置时先收起，鼠标经过仍可展开；七日周图直接标注每日百分比。更多功能、数据迁移与构建说明见 [Mac 版文档](macos/README.md)。
+
+### Windows 安装
+
+下载并运行 `CodexUsageWidget-v1.2.3-win-x64.exe`。它是 Windows x64 自包含单文件，无需预装 .NET。当前 EXE 尚未进行代码签名，因此 Windows SmartScreen 首次运行时可能显示提醒；请核对 Release 页面公布的 SHA-256 后再运行。
 
 升级时先从托盘菜单退出旧版，再运行新 EXE。已有设置和用量索引会继续使用。
 
-仓库中的 `dist\CodexUsageWidget.exe` 只由本地构建产生，不进入 Git 历史。
-版本变化见 [CHANGELOG](CHANGELOG.md)。
+仓库中的 `dist\CodexUsageWidget.exe` 只由本地构建产生，不进入 Git 历史。版本变化见 [CHANGELOG](CHANGELOG.md)。以下界面、截图及操作细节以 Windows 版为准，Mac 版请参阅上方安装说明和专用文档。
 
 ## 界面
 
