@@ -4,7 +4,7 @@
 
 [![最新版本](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](../../releases/latest)
 
-Windows 稳定版：**v1.2.3**；Mac 预发布版：**v1.3.0-mac.5**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
+Windows 稳定版：**v1.2.3**；Mac 预发布版：**v1.3.0-mac.6**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
 
 一个完全在本机运行的桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗，支持 Windows 11 和 macOS。Windows 版使用 WPF，Mac 版使用原生 SwiftUI/AppKit，两者共用 C# 统计引擎。发布包均自带运行时，无需预装 .NET。
 
@@ -14,16 +14,16 @@ Windows 稳定版：**v1.2.3**；Mac 预发布版：**v1.3.0-mac.5**。中文说
 
 | 平台 | 版本与系统要求 | 下载 |
 |---|---|---|
-| Mac | v1.3.0-mac.5（预发布）；Apple Silicon（M 系列），macOS 13+ | [Mac 安装包 ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/CodexUsageWidget-v1.3.0-mac.5-arm64.zip) · [Release 说明](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.5) |
+| Mac | v1.3.0-mac.6（预发布）；Apple Silicon（M 系列），macOS 13+ | [Mac 安装包 ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.6/CodexUsageWidget-v1.3.0-mac.6-arm64.zip) · [Release 说明](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.6) |
 | Windows | v1.2.3（稳定版）；Windows 11 x64 | [Windows EXE](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.2.3/CodexUsageWidget-v1.2.3-win-x64.exe) · [Release 说明](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.2.3) |
 
 ### Mac 安装
 
-1. 下载并解压 `CodexUsageWidget-v1.3.0-mac.5-arm64.zip`。
+1. 下载并解压 `CodexUsageWidget-v1.3.0-mac.6-arm64.zip`。
 2. 将 `Codex Usage Widget.app` 拖入“应用程序”（`/Applications`）或个人应用目录（`~/Applications`），然后双击打开。
 3. 应用会显示菜单栏图标和桌面悬浮窗。鼠标移入悬浮窗展开，右键菜单或菜单栏可打开设置。
 
-安装包适用于 Apple Silicon Mac；本次不提供 Intel 安装包。安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。若 macOS 阻止首次打开，可在“系统设置 → 隐私与安全性”中查看并允许打开。下载完整性可用 Release 随附的 [SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/SHA256SUMS.txt) 核对；将它与 ZIP 放在同一目录，在终端运行：
+安装包适用于 Apple Silicon Mac；本次不提供 Intel 安装包。安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。若 macOS 阻止首次打开，可在“系统设置 → 隐私与安全性”中查看并允许打开。下载完整性可用 Release 随附的 [SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.6/SHA256SUMS.txt) 核对；将它与 ZIP 放在同一目录，在终端运行：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt

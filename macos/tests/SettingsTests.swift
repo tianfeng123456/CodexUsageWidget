@@ -17,6 +17,16 @@ import SwiftUI
         delegate.showSettings()
         assert(model.settingsOpen && !model.expanded && !model.pinned && !model.showingWeekly)
         assert(delegate.panel.frame.size == CGSize(width:80,height:80))
+        func effects(_ root:NSView) -> [NSVisualEffectView] {
+            (root as? NSVisualEffectView).map { [$0] } ?? root.subviews.flatMap { effects($0) }
+        }
+        for transparency in [0.0,0.5,1.0,0.25] {
+            model.preferences.transparency = transparency
+            RunLoop.current.run(until:Date().addingTimeInterval(0.1))
+            let glass = effects(view).filter { $0.material == .hudWindow }
+            assert(!glass.isEmpty)
+            assert(glass.allSatisfy { abs($0.alphaValue-WidgetGeometry.glassOpacity(transparency)) < 0.001 })
+        }
         for style in ["circle","glow","capsule"] {
             model.preferences.idleStyle = style
             for scale in [0.5,0.65,1.0,1.25] {
@@ -43,6 +53,6 @@ import SwiftUI
         delegate.setExpanded(false)
         assert(delegate.panel.frame.size == WidgetGeometry.idleSize("capsule",scale:1.25))
         delegate.panel.orderOut(nil)
-        print("PASS: settings collapses pinned/weekly panel; hover still expands; slider restores collapsed preview; all 3 styles resize live at 4 scales; close restores expansion; in-memory model leaves user settings untouched")
+        print("PASS: native backdrop alpha updates at 0/25/50/100%; settings collapses pinned/weekly panel; hover still expands; slider restores collapsed preview; all 3 styles resize live at 4 scales; close restores expansion; in-memory model leaves user settings untouched")
     }
 }

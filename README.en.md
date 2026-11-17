@@ -4,7 +4,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
 
-Windows stable release: **v1.2.3**; Mac prerelease: **v1.3.0-mac.5**. Read this page in English or switch to the
+Windows stable release: **v1.2.3**; Mac prerelease: **v1.3.0-mac.6**. Read this page in English or switch to the
 [Chinese README](README.md).
 
 A local-only desktop widget for monitoring remaining Codex quota and per-task
@@ -19,12 +19,12 @@ the runtime, so no separate .NET installation is required.
 
 | Platform | Version and requirements | Download |
 |---|---|---|
-| Mac | v1.3.0-mac.5 (prerelease); Apple Silicon (M series), macOS 13+ | [Mac ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/CodexUsageWidget-v1.3.0-mac.5-arm64.zip) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.5) |
+| Mac | v1.3.0-mac.6 (prerelease); Apple Silicon (M series), macOS 13+ | [Mac ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.6/CodexUsageWidget-v1.3.0-mac.6-arm64.zip) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.6) |
 | Windows | v1.2.3 (stable); Windows 11 x64 | [Windows EXE](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.2.3/CodexUsageWidget-v1.2.3-win-x64.exe) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.2.3) |
 
 ### Mac installation
 
-1. Download and unzip `CodexUsageWidget-v1.3.0-mac.5-arm64.zip`.
+1. Download and unzip `CodexUsageWidget-v1.3.0-mac.6-arm64.zip`.
 2. Move `Codex Usage Widget.app` into `/Applications` or `~/Applications`, then double-click it.
 3. The app displays a menu bar item and a desktop widget. Hover over the widget to expand it; use the right-click or menu bar menu to open Settings.
 
@@ -32,7 +32,7 @@ This package supports Apple Silicon Macs; an Intel package is not provided.
 It is ad-hoc signed and has not been signed with Apple Developer ID or notarized.
 If macOS blocks the first launch, review and allow it in **System Settings →
 Privacy & Security**. To verify the download, save the release's
-[SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.5/SHA256SUMS.txt)
+[SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.6/SHA256SUMS.txt)
 in the same directory as the ZIP and run:
 
 ```sh

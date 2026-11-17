@@ -1,5 +1,11 @@
 import Foundation
 struct WidgetGeometry {
+    // Fade the native backdrop itself; a tint-only change leaves HUD glass opaque.
+    // Keep a nonzero material layer at the transparent endpoint.
+    static func glassOpacity(_ transparency:Double) -> Double {
+        let value = transparency.isFinite ? min(1,max(0,transparency)) : 0.5
+        return max(0.02,1-value)
+    }
     static func idleSize(_ style:String, scale:Double = 1) -> CGSize {
         let factor = scale.isFinite ? min(1.25,max(0.5,scale)) : 1
         let base: CGSize

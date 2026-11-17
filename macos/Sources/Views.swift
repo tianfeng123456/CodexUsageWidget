@@ -5,12 +5,16 @@ import ServiceManagement
 import Darwin
 
 struct Glass: NSViewRepresentable {
+    var opacity: Double = 1
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView(); view.material = .hudWindow
         view.blendingMode = .behindWindow; view.state = .active
+        view.alphaValue = opacity
         return view
     }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.alphaValue = opacity
+    }
 }
 extension Model {
     var tint: Color {
@@ -111,9 +115,10 @@ struct WidgetView: View {
     var body: some View {
         ZStack {
             if model.expanded || model.preferences.idleStyle != "glow" {
-                Glass()
+                Glass(opacity:WidgetGeometry.glassOpacity(model.preferences.transparency))
                 surface.opacity(1-model.preferences.transparency*0.88)
                 LinearGradient(colors:[Color.white.opacity(dark ? 0.04 : 0.12),.clear,Color.black.opacity(0.035)],startPoint:.topLeading,endPoint:.bottomTrailing)
+                    .opacity(WidgetGeometry.glassOpacity(model.preferences.transparency))
             }
             if model.expanded { panel }
             else if model.preferences.idleStyle == "capsule" {
@@ -347,9 +352,9 @@ struct SettingsView: View {
                 }.accessibilityIdentifier("IdleIconScaleSlider")
                 Text(model.t("桌面图标实时预览大小；100% 为原始大小。","The desktop icon previews changes live; 100% is the original size."))
                     .font(.caption).foregroundStyle(.secondary)
-                Slider(value:$model.preferences.transparency,in:0...1) {
-                    Text(model.t("玻璃透明度","Transparency") + " \(Int(model.preferences.transparency*100))%")
-                }
+                Slider(value:$model.preferences.transparency,in:0...1,step:0.01) {
+                    Text(model.t("玻璃透明度","Transparency") + " \(Int((model.preferences.transparency*100).rounded()))%")
+                }.accessibilityIdentifier("GlassTransparencySlider")
             }
             Section(model.t("常驻行为","Behavior")) {
                 Toggle(model.t("保持置顶","Always on top"),isOn:$model.preferences.alwaysOnTop)
@@ -374,7 +379,7 @@ struct SettingsView: View {
                     Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.busy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.5 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.6 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).frame(width:480,height:650)
     }
