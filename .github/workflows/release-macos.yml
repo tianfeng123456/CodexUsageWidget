@@ -1,0 +1,85 @@
+name: Publish macOS release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'macos/**'
+      - '.github/workflows/release-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check architecture and version
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          versions = set(re.findall(r'v\d+\.\d+\.\d+-mac\.\d+', Path('macos/Sources/Views.swift').read_text()))
+          assert len(versions) == 1, versions
+          version = versions.pop()
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'VERSION={version}\n')
+              f.write(f'PACKAGE=CodexUsageWidget-{version}-arm64.zip\n')
+          PY
+      - name: Verify native model and build application
+        shell: bash
+        run: |
+          mkdir -p macos/.build
+          xcrun swiftc macos/Sources/Model.swift macos/Sources/Geometry.swift macos/tests/ModelTests.swift -o macos/.build/model-tests -framework AppKit -framework Combine -framework ServiceManagement
+          macos/.build/model-tests
+          macos/build.sh
+      - name: Package and verify archive
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "dist/Codex Usage Widget.app" "$PACKAGE"
+          shasum -a 256 "$PACKAGE" > SHA256SUMS.txt
+          mkdir -p macos/.build/unpacked
+          ditto -x -k "$PACKAGE" macos/.build/unpacked
+          codesign --verify --deep --strict "macos/.build/unpacked/Codex Usage Widget.app"
+          cmp "dist/Codex Usage Widget.app/Contents/MacOS/CodexUsageWidget" "macos/.build/unpacked/Codex Usage Widget.app/Contents/MacOS/CodexUsageWidget"
+          cmp "dist/Codex Usage Widget.app/Contents/Helpers/CodexUsageWidget.Bridge" "macos/.build/unpacked/Codex Usage Widget.app/Contents/Helpers/CodexUsageWidget.Bridge"
+      - name: Publish release
+        shell: bash
+        run: |
+          cat > macos/.build/release-notes.md <<'NOTES'
+          Codex 用量面板 macOS 原生版，适用于 Apple Silicon（M1/M2/M3/M4 等）及 macOS 13+。
+
+          - 原生玻璃外观，三种待机样式；复用 Windows 版统计引擎。
+          - 恢复桌面任务名称，修复窗口拖动和周图点击。
+          - 打开设置时收起；鼠标经过仍按原逻辑展开。
+          - 图标大小支持 50%–125%，调节时实时预览。
+          - 七日周图直接显示百分比，移除下方表格，保留 ≥ 部分观测与缺失日期提示。
+
+          安装：解压 ZIP，将 Codex Usage Widget.app 移到 Applications 或 ~/Applications 后打开。
+          安装包内含统计运行时，无需另装 .NET；SHA256SUMS.txt 可用于校验下载。
+
+          本版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能要求在“系统设置 → 隐私与安全性”中允许打开。
+          NOTES
+          if gh release view "$VERSION" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$VERSION" --json isDraft --jq '.isDraft')" = true
+            test "$(gh api "repos/$GH_REPO/git/ref/tags/$VERSION" --jq '.object.sha')" = "$GITHUB_SHA"
+          else
+            gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION · macOS Apple Silicon" --notes-file macos/.build/release-notes.md --draft --prerelease
+          fi
+          gh release upload "$VERSION" "$PACKAGE" SHA256SUMS.txt --clobber
+          gh release edit "$VERSION" --draft=false --prerelease --latest=false

@@ -6,6 +6,40 @@ namespace CodexUsageWidget.Tests;
 public sealed class UsageIndexServiceTests
 {
     [Fact]
+    public async Task ForkWithNoCopiedPrefix_ReopensWithoutDiscardingHistoryAndResumesIncrementally()
+    {
+        using var temporary = new TemporaryDirectory();
+        var home = temporary.GetPath("home");
+        var sessions = System.IO.Path.Combine(home, "sessions");
+        Directory.CreateDirectory(sessions);
+        const string parent = "99999999-9999-9999-9999-999999999999";
+        const string fork = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var now = DateTimeOffset.UtcNow;
+        var forkPath = System.IO.Path.Combine(sessions, "a-fork.jsonl");
+        await TestLog.WriteLinesAsync(System.IO.Path.Combine(sessions, "z-parent.jsonl"),
+            TestLog.SessionMeta(parent, parent), TestLog.TokenCount(now, 100, 50, 0, 10, 5));
+        await TestLog.WriteLinesAsync(forkPath,
+            TestLog.SessionMeta(fork, fork, forkedFromId: parent, threadSource: "subagent"),
+            TestLog.TokenCount(now, 200, 100, 0, 20, 10));
+        var options = new UsageIndexOptions(home, temporary.GetPath("usage.db"), TimeZoneInfo.Utc);
+        await using (var first = new UsageIndexService(options))
+        {
+            await first.InitializeAsync();
+            Assert.True(first.HasCompletedInitialIndex);
+            Assert.Equal(330, (await first.QueryPeriodAsync(UsagePeriod.All)).Summary.Total.TotalTokens);
+        }
+        await using var reopened = new UsageIndexService(options);
+        await reopened.OpenAsync();
+        Assert.True(reopened.HasCompletedInitialIndex);
+        Assert.False(reopened.RequiresHistoryBuild);
+        Assert.Equal(330, (await reopened.QueryPeriodAsync(UsagePeriod.All)).Summary.Total.TotalTokens);
+        Assert.Equal(0, (await reopened.RefreshAsync()).BytesProcessed);
+        await TestLog.AppendLinesAsync(forkPath, TestLog.TokenCount(now.AddSeconds(1), 250, 125, 0, 25, 12));
+        await reopened.RefreshAsync();
+        Assert.Equal(385, (await reopened.QueryPeriodAsync(UsagePeriod.All, now.AddHours(1))).Summary.Total.TotalTokens);
+    }
+
+    [Fact]
     public async Task Facade_InitializesRefreshesQueriesAndReportsProgress()
     {
         using var temporary = new TemporaryDirectory();

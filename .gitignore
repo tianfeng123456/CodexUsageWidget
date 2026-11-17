@@ -33,3 +33,7 @@ docs/design-reference.png
 docs/design-concepts/
 docs/design-concepts-living/
 docs/designs/
+
+# macOS native build outputs
+macos/.build/
+macos/AppIcon.iconset/

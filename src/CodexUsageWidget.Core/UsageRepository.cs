@@ -272,7 +272,12 @@ public sealed class UsageRepository
                 !IsSqliteBoolean(isArchived) ||
                 !IsSqliteBoolean(isChild) ||
                 !IsSqliteBoolean(replayBoundarySeen) ||
-                firstReplayBoundaryOffset is < 0 ||
+                // -1 is the parser's explicit "no copied token prefix" cutoff
+                // for a verified root-like subagent fork. It is not corruption.
+                firstReplayBoundaryOffset is < -1 ||
+                firstReplayBoundaryOffset == -1 &&
+                    (isChild != 1 || replayBoundarySeen != 1 ||
+                     accountingVersionValue < CurrentTokenAccountingVersion) ||
                 firstReplayBoundaryOffset > processedOffset ||
                 accountingVersionValue < 0 ||
                 accountingVersionValue > int.MaxValue)
@@ -1937,7 +1942,12 @@ public sealed class UsageRepository
             highWater is { } persistedHighWater &&
             !IsValidPersistedHighWater(persistedHighWater) ||
             !IsSqliteBoolean(replayBoundarySeen) ||
-            firstReplayBoundaryOffset is < 0 ||
+            // -1 is the parser's explicit "no copied token prefix" cutoff
+                // for a verified root-like subagent fork. It is not corruption.
+                firstReplayBoundaryOffset is < -1 ||
+                firstReplayBoundaryOffset == -1 &&
+                    (isChild != 1 || replayBoundarySeen != 1 ||
+                     accountingVersionValue < CurrentTokenAccountingVersion) ||
             firstReplayBoundaryOffset > processedOffset ||
             replayBoundarySeen == 0 && firstReplayBoundaryOffset is not null ||
             accountingVersionValue < 0 ||

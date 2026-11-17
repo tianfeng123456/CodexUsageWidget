@@ -693,8 +693,10 @@ public sealed class UsageIndexService : IAsyncDisposable
             }
             catch (DirectoryNotFoundException)
             {
-                // A not-yet-created source folder and a concurrently removed
-                // child folder both contribute no files and are complete.
+                // Unix reports ENOTDIR as DirectoryNotFoundException too.
+                // A regular file at a source directory is an invalid source,
+                // not an empty successfully indexed directory.
+                if (File.Exists(currentDirectory)) complete = false;
                 continue;
             }
             catch (Exception exception) when (

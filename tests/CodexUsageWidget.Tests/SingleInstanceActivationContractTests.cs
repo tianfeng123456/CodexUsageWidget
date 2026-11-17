@@ -36,7 +36,7 @@ public sealed class SingleInstanceActivationContractTests
     private const string AppPath =
         "src/CodexUsageWidget/App.xaml.cs";
 
-    [Fact]
+    [WindowsFact]
     public void DuplicateInstance_SignalsPrimary_EvenBeforeListenerStarts()
     {
         var suffix = Guid.NewGuid().ToString("N");
@@ -67,7 +67,7 @@ public sealed class SingleInstanceActivationContractTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public void PrimaryLease_CanReceiveRepeatedRequests_AndBeReacquiredAfterDispose()
     {
         var suffix = Guid.NewGuid().ToString("N");
@@ -106,7 +106,7 @@ public sealed class SingleInstanceActivationContractTests
         replacement!.Dispose();
     }
 
-    [Fact]
+    [WindowsFact]
     public void StartListening_IsIdempotentUnderConcurrentCalls()
     {
         var suffix = Guid.NewGuid().ToString("N");
