@@ -75,14 +75,17 @@ public sealed class CodexHomeLocatorTests
     [Fact]
     public void FromHome_TrimsAndExpandsEnvironmentVariables()
     {
-        var result = CodexHomePaths.FromHome("  %TEMP%\\codex-home-test  ");
-
-        Assert.Equal(
-            System.IO.Path.GetFullPath(
-                System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(),
-                    "codex-home-test")),
-            result.HomeDirectory);
+        const string variable = "CODEX_WIDGET_TEST_HOME";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, System.IO.Path.GetTempPath());
+            var result = CodexHomePaths.FromHome(
+                "  " + System.IO.Path.Combine("%" + variable + "%", "codex-home-test") + "  ");
+            Assert.Equal(System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "codex-home-test")), result.HomeDirectory);
+        }
+        finally { Environment.SetEnvironmentVariable(variable, previous); }
     }
 
     [Fact]
@@ -90,8 +93,9 @@ public sealed class CodexHomeLocatorTests
     {
         var exception = Assert.Throws<DirectoryNotFoundException>(
             () => CodexHomeLocator.Detect(new string('a', 40_000)));
-
-        Assert.IsType<PathTooLongException>(exception.InnerException);
+        // Windows validates length in GetFullPath; Unix rejects the source
+        // through Directory.Exists. Both must reject the explicit source.
+        if (OperatingSystem.IsWindows()) Assert.IsType<PathTooLongException>(exception.InnerException);
     }
 
     [Theory]

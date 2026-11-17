@@ -2,6 +2,8 @@
 
 # Codex 用量悬浮窗
 
+macOS Apple Silicon 迁移版现位于 [`macos/`](macos/README.md)，使用原统计引擎和原生 SwiftUI/AppKit 界面。Windows 稳定版仍为 v1.2.3。
+
 [![最新版本](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](../../releases/latest)
 
 当前稳定版：**v1.2.3**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
