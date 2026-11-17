@@ -41,7 +41,7 @@ jobs:
           sdk = [line.split()[0] for line in sdks if line.startswith('8.0.')][-1]
           Path('global.json').write_text(json.dumps({'sdk': {'version': sdk, 'rollForward': 'latestPatch'}}))
           with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'VERSION={version}\n')
+              f.write(f'RELEASE_TAG={version}\n')
               f.write(f'PACKAGE=CodexUsageWidget-{version}-arm64.zip\n')
           PY
       - name: Verify native model and build application
@@ -78,11 +78,11 @@ jobs:
 
           本版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能要求在“系统设置 → 隐私与安全性”中允许打开。
           NOTES
-          if gh release view "$VERSION" --json isDraft >/dev/null 2>&1; then
-            test "$(gh release view "$VERSION" --json isDraft --jq '.isDraft')" = true
-            test "$(gh api "repos/$GH_REPO/git/ref/tags/$VERSION" --jq '.object.sha')" = "$GITHUB_SHA"
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+            test "$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$GITHUB_SHA"
           else
-            gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION · macOS Apple Silicon" --notes-file macos/.build/release-notes.md --draft --prerelease
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG · macOS Apple Silicon" --notes-file macos/.build/release-notes.md --draft --prerelease
           fi
-          gh release upload "$VERSION" "$PACKAGE" SHA256SUMS.txt --clobber
-          gh release edit "$VERSION" --draft=false --prerelease --latest=false
+          gh release upload "$RELEASE_TAG" "$PACKAGE" SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
