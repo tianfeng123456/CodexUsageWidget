@@ -32,11 +32,14 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           python3 - <<'PY'
-          import os, re
+          import os, re, json, subprocess
           from pathlib import Path
           versions = set(re.findall(r'v\d+\.\d+\.\d+-mac\.\d+', Path('macos/Sources/Views.swift').read_text()))
           assert len(versions) == 1, versions
           version = versions.pop()
+          sdks = subprocess.check_output(['dotnet', '--list-sdks'], text=True).splitlines()
+          sdk = [line.split()[0] for line in sdks if line.startswith('8.0.')][-1]
+          Path('global.json').write_text(json.dumps({'sdk': {'version': sdk, 'rollForward': 'latestPatch'}}))
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'VERSION={version}\n')
               f.write(f'PACKAGE=CodexUsageWidget-{version}-arm64.zip\n')
