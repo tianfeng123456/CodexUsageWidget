@@ -13,11 +13,11 @@ permissions:
 
 concurrency:
   group: macos-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
@@ -67,6 +67,7 @@ jobs:
           cat > macos/.build/release-notes.md <<'NOTES'
           Codex 用量面板 macOS 原生版，适用于 Apple Silicon（M1/M2/M3/M4 等）及 macOS 13+。
 
+          - mac.6 修复：透明度滑块现在实时控制系统毛玻璃材质层，文字与图标保持清晰。
           - 原生玻璃外观，三种待机样式；复用 Windows 版统计引擎。
           - 恢复桌面任务名称，修复窗口拖动和周图点击。
           - 打开设置时收起；鼠标经过仍按原逻辑展开。
