@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Charts
 import ServiceManagement
+import Darwin
 
 struct Glass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -23,8 +24,8 @@ struct HeartbeatRing: Shape {
         let center = CGPoint(x:rect.midX,y:rect.midY), radius = min(rect.width,rect.height)/2
         var p = Path()
         func point(_ degrees:Double) -> CGPoint {
-            let angle = degrees * .pi / 180
-            return CGPoint(x:center.x+radius*cos(angle),y:center.y+radius*sin(angle))
+            let angle: Double = degrees * .pi / 180
+            return CGPoint(x:center.x+radius*CGFloat(Darwin.cos(angle)),y:center.y+radius*CGFloat(Darwin.sin(angle)))
         }
         p.move(to:point(-90))
         for angle in stride(from:-89.0,through:76.0,by:1) { p.addLine(to:point(angle)) }
@@ -189,12 +190,12 @@ struct WidgetView: View {
     var sparkline: some View {
         GeometryReader { g in
             let values = model.weekly.map { $0.consumedPercentagePoints }
-            let maximum = max(1,values.compactMap { $0 }.max() ?? 1)
+            let maximum: Double = max(1,values.compactMap { $0 }.max() ?? 1)
             Path { path in
                 var connected = false
                 for i in 0..<7 {
                     if values.count == 7, let value = values[i] {
-                        let point = CGPoint(x:CGFloat(i)*g.size.width/6,y:g.size.height-2-value/maximum*(g.size.height-4))
+                        let point = CGPoint(x:CGFloat(i)*g.size.width/CGFloat(6),y:g.size.height-2-CGFloat(value/maximum)*(g.size.height-4))
                         if connected { path.addLine(to:point) } else { path.move(to:point) }; connected = true
                     } else { connected = false }
                 }
@@ -202,7 +203,7 @@ struct WidgetView: View {
             }.stroke(Color.secondary.opacity(0.5),lineWidth:0.8)
             ForEach(0..<7,id:\.self) { i in
                 Circle().fill(values.count == 7 && values[i] != nil ? accent.opacity(0.65) : Color.secondary.opacity(0.25)).frame(width:3,height:3)
-                    .position(x:CGFloat(i)*g.size.width/6,y:values.count == 7 ? g.size.height-2-(values[i] ?? 0)/maximum*(g.size.height-4) : g.size.height/2)
+                    .position(x:CGFloat(i)*g.size.width/CGFloat(6),y:values.count == 7 ? g.size.height-2-CGFloat((values[i] ?? 0)/maximum)*(g.size.height-4) : g.size.height/2)
             }
         }
     }
