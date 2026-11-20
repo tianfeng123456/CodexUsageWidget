@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 @main struct ModelTests {
     static func main() throws {
         assert(formatTokens(9876,chinese:true) == "9,876")
@@ -96,6 +97,60 @@ import Foundation
         assert(model.progressText == "Refreshing…")
         model.progressStage = "Reading"; model.progress = 0.25; assert(model.progressText == "Indexing 25%")
         model.progress = 1; assert(model.progressText == "Summarizing…")
-        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate")
+
+        // Gemini local usage scanner tests (isolated temporary directory).
+        assert(formatCompactTokens(0, chinese: false) == "0")
+        assert(formatCompactTokens(13_400_000, chinese: false) == "13.4M")
+        assert(formatCompactTokens(13_400_000, chinese: true) == "1340万")
+        assert(formatCompactTokens(134_000_000, chinese: true) == "1.34亿")
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("gemini-usage-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let brain = tempRoot.appendingPathComponent("brain")
+        let rootConv = brain.appendingPathComponent("conv-root/.system_generated/logs")
+        let childConv = brain.appendingPathComponent("conv-child/.system_generated/logs")
+        try FileManager.default.createDirectory(at: rootConv, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: childConv, withIntermediateDirectories: true)
+        let dbPath = tempRoot.appendingPathComponent("conversation_summaries.db").path
+        var db: OpaquePointer?
+        assert(sqlite3_open(dbPath, &db) == SQLITE_OK)
+        let schema = """
+        CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, title text NOT NULL DEFAULT '', parent_conversation_id text NOT NULL DEFAULT '');
+        INSERT INTO conversation_summaries VALUES ('conv-root', '主任务标题', '');
+        INSERT INTO conversation_summaries VALUES ('conv-child', '', 'conv-root');
+        """
+        assert(sqlite3_exec(db, schema, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+        let now = parsedDate("2026-11-20T14:00:00Z")!
+        let rootJsonl = """
+        {"type":"USER_INPUT","created_at":"2026-11-20T10:00:00Z","content":"<USER_REQUEST>\\nHello\\n</USER_REQUEST>"}
+        {"type":"PLANNER_RESPONSE","created_at":"2026-11-20T12:00:00Z","model":"gemini-4-neon-medium","input_tokens":1000,"cache_read_tokens":5000,"output_tokens":200}
+        {"type":"PLANNER_RESPONSE","created_at":"2026-11-18T12:00:00Z","model":"gemini-4-neon-medium","input_tokens":3000,"cache_read_tokens":0,"output_tokens":500}
+        """
+        let childJsonl = """
+        {"type":"PLANNER_RESPONSE","created_at":"2026-11-20T13:00:00Z","model":"gemini-4-carbon-high","input_tokens":500,"cache_read_tokens":1500,"output_tokens":300}
+        """
+        try rootJsonl.write(to: rootConv.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+        try childJsonl.write(to: childConv.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+        var utcCal = Calendar(identifier: .gregorian); utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let scanner = GeminiUsageScanner(calendar: utcCal)
+        let todayRes = scanner.scan(home: tempRoot.path, period: 0, now: now)
+        assert(todayRes.todayTokens == 8500) // (1000+5000+200) + (500+1500+300)
+        assert(todayRes.recent5hTokens == 8500)
+        assert(todayRes.snapshot.summary.taskCount == 1) // child merged into root
+        assert(todayRes.snapshot.topTasks.first?.title == "主任务标题")
+        assert(todayRes.snapshot.summary.total.cachedInputTokens == 6500)
+        assert(todayRes.snapshot.summary.total.outputTokens == 500)
+        assert(todayRes.taskModels["conv-root"] == ["gemini-4-carbon-high", "gemini-4-neon-medium"])
+        assert(todayRes.weeklyTokens.count == 7)
+        assert(todayRes.weeklyTokens.last?.totalTokens == 8500)
+        let weekRes = scanner.scan(home: tempRoot.path, period: 1, now: now)
+        assert(weekRes.snapshot.summary.total.totalTokens == 12000) // 8500 + 3500
+        model.preferences.activeProvider = .gemini
+        model.geminiSnapshot = todayRes.snapshot
+        model.geminiTodayTokens = todayRes.todayTokens
+        model.geminiRecent5hTokens = todayRes.recent5hTokens
+        assert(model.isGemini && model.remainingText == "8.50K" && model.menuBarTitle == "G 8.50K")
+
+        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner & subagent merge")
     }
 }

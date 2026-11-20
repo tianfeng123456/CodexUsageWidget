@@ -18,8 +18,17 @@ struct Glass: NSViewRepresentable {
 }
 extension Model {
     var tint: Color {
+        if isGemini && geminiQuota == nil {
+            return Color(red:0.46,green:0.68,blue:0.99)
+        }
         guard let n = displayedRemaining else { return .secondary }
         return n >= 30 ? Color(red:0.31,green:0.82,blue:0.66) : n >= 10 ? Color(red:1,green:0.80,blue:0.45) : n > 0 ? .orange : .red
+    }
+    var ringProgress: Double {
+        if isGemini && geminiQuota == nil {
+            return geminiTodayTokens > 0 ? 1.0 : 0.0
+        }
+        return (activeQuota?.remaining ?? 0) / 100
     }
 }
 // One continuous path: the heartbeat is part of the progress track, as on Windows.
@@ -59,11 +68,11 @@ struct Ring: View {
         ZStack {
             if small {
                 Circle().stroke(model.tint.opacity(0.16),lineWidth:5)
-                Circle().trim(from:0,to:(model.quota?.remaining ?? 0)/100).stroke(model.tint,style:StrokeStyle(lineWidth:2,lineCap:.round)).rotationEffect(.degrees(-90))
+                Circle().trim(from:0,to:model.ringProgress).stroke(model.tint,style:StrokeStyle(lineWidth:2,lineCap:.round)).rotationEffect(.degrees(-90))
             } else {
                 HeartbeatRing().stroke(Color.primary.opacity(0.17),style:StrokeStyle(lineWidth:2.4,lineCap:.round,lineJoin:.round))
-                HeartbeatRing().trim(from:0,to:(model.quota?.remaining ?? 0)/100).stroke(model.tint,style:StrokeStyle(lineWidth:2.5,lineCap:.round,lineJoin:.round))
-                Text(model.remainingText).font(.system(size:21,weight:.semibold)).monospacedDigit().offset(y:-1)
+                HeartbeatRing().trim(from:0,to:model.ringProgress).stroke(model.tint,style:StrokeStyle(lineWidth:2.5,lineCap:.round,lineJoin:.round))
+                Text(model.remainingText).font(.system(size:model.isGemini && model.geminiQuota == nil ? 17 : 21,weight:.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.55).padding(.horizontal,8).offset(y:-1)
             }
         }.padding(small ? 5 : 7)
     }
@@ -110,7 +119,12 @@ struct WidgetView: View {
     var collapse: () -> Void
     @Environment(\.colorScheme) var scheme
     var dark: Bool { scheme == .dark }
-    var accent: Color { (model.displayedRemaining ?? 0) >= 30 && !dark ? Color(red:0.08,green:0.65,blue:0.45) : model.tint }
+    var accent: Color {
+        if model.isGemini && model.geminiQuota == nil {
+            return dark ? model.tint : Color(red:0.22,green:0.47,blue:0.88)
+        }
+        return (model.displayedRemaining ?? 0) >= 30 && !dark ? Color(red:0.08,green:0.65,blue:0.45) : model.tint
+    }
     var surface: Color { dark ? Color(red:0.13,green:0.17,blue:0.16) : Color(red:0.85,green:0.88,blue:0.85) }
     var body: some View {
         ZStack {
@@ -122,16 +136,17 @@ struct WidgetView: View {
             }
             if model.expanded { panel }
             else if model.preferences.idleStyle == "capsule" {
-                HStack(spacing:10) {
-                    Text(model.remainingText).font(.system(size:26,weight:.light)).monospacedDigit()
-                    Wave().stroke(accent,style:StrokeStyle(lineWidth:1.4,lineCap:.round)).frame(width:34,height:15)
+                let compactGemini = model.isGemini && model.geminiQuota == nil
+                HStack(spacing:compactGemini ? 7 : 10) {
+                    Text(model.remainingText).font(.system(size:compactGemini ? 20 : 26,weight:.light)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
+                    Wave().stroke(accent,style:StrokeStyle(lineWidth:1.4,lineCap:.round)).frame(width:compactGemini ? 24 : 34,height:15)
                     VStack(alignment:.leading,spacing:3) {
-                        Text(model.t("剩余额度","Remaining")).foregroundStyle(.secondary)
+                        Text(compactGemini ? "Gemini" : model.t("剩余额度","Remaining")).foregroundStyle(.secondary)
                         Text(model.statusText).foregroundStyle(accent)
-                    }.font(.system(size:10.5))
+                    }.font(.system(size:10.5)).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength:0)
-                }.padding(.horizontal,15).contentShape(Rectangle()).onTapGesture { hover(true) }
-            } else { Ring(model:model,small:model.preferences.idleStyle == "glow").accessibilityElement(children:.ignore).accessibilityLabel(model.t("剩余额度","Remaining quota")).accessibilityValue(model.remainingText).accessibilityAddTraits(.isButton).accessibilityAction { hover(true) }.contentShape(Circle()).onTapGesture { hover(true) } }
+                }.padding(.horizontal,compactGemini ? 13 : 15).contentShape(Rectangle()).onTapGesture { hover(true) }
+            } else { Ring(model:model,small:model.preferences.idleStyle == "glow").accessibilityElement(children:.ignore).accessibilityLabel(model.isGemini ? model.t("Gemini 今日用量","Gemini today usage") : model.t("剩余额度","Remaining quota")).accessibilityValue(model.remainingText).accessibilityAddTraits(.isButton).accessibilityAction { hover(true) }.contentShape(Circle()).onTapGesture { hover(true) } }
         }
         .clipShape(RoundedRectangle(cornerRadius:model.expanded ? 32 : 100))
         .frame(width:model.expanded ? 420 : model.preferences.idleStyle == "capsule" ? 208 : model.preferences.idleStyle == "glow" ? 32 : 80,
@@ -144,6 +159,9 @@ struct WidgetView: View {
         .onHover(perform:hover)
         .contextMenu {
             if model.expanded { Button(model.t("收起","Collapse"),action:collapse) }
+            Button(model.isGemini ? model.t("切换到 Codex","Switch to Codex") : model.t("切换到 Gemini","Switch to Gemini")) {
+                model.selectProvider(model.isGemini ? .codex : .gemini)
+            }
             Button(model.t("立即刷新","Refresh now")) { model.refresh() }
             Button(model.t("设置…","Settings…"),action:settings)
             Button(model.t("退出","Quit")) { NSApp.terminate(nil) }
@@ -158,10 +176,10 @@ struct WidgetView: View {
         }.padding(20).frame(width:420,height:540,alignment:.top)
     }
     var header: some View {
-        HStack(alignment:.top,spacing:20) {
-            Text(model.remainingText).font(.system(size:55,weight:.ultraLight)).monospacedDigit().tracking(-2).lineLimit(1).minimumScaleFactor(0.75).frame(width:108,alignment:.leading).padding(.top,4).contentShape(Rectangle())
+        HStack(alignment:.top,spacing:16) {
+            Text(model.remainingText).font(.system(size:55,weight:.ultraLight)).monospacedDigit().tracking(-2).lineLimit(1).minimumScaleFactor(0.45).frame(width:112,alignment:.leading).padding(.top,4).contentShape(Rectangle())
             VStack(alignment:.leading,spacing:5) {
-                Text(model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).contentShape(Rectangle())
+                Text(model.isGemini && model.geminiQuota == nil ? model.t("Gemini 今日","Gemini today") : model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).contentShape(Rectangle())
                 Text(resetText).font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1).contentShape(Rectangle())
                 Button {
                     model.showingWeekly.toggle()
@@ -169,24 +187,55 @@ struct WidgetView: View {
                 } label: {
                     HStack(spacing:5) {
                         Circle().fill(accent).frame(width:7,height:7)
-                        Text(model.t("周已用 ","Week ") + (model.quota?.weekly.map { String(format:"%.0f%%",$0.usedPercent) } ?? "--"))
-                            .font(.system(size:10.5)).foregroundStyle(.secondary)
-                        sparkline.frame(width:54,height:14).allowsHitTesting(false).accessibilityHidden(true)
+                        Text(weeklyTriggerLabel)
+                            .font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1)
+                        sparkline.frame(width:48,height:14).allowsHitTesting(false).accessibilityHidden(true)
                     }.frame(minHeight:24).contentShape(Rectangle())
-                }.buttonStyle(.plain).headerControl().accessibilityIdentifier("WeeklyQuotaTrendButton").help(model.t("查看七日周额度消耗","View daily weekly-quota usage"))
+                }.buttonStyle(.plain).headerControl().accessibilityIdentifier("WeeklyQuotaTrendButton").help(model.isGemini && model.geminiQuota == nil ? model.t("查看七日 Token 消耗","View 7-day token usage") : model.t("查看七日周额度消耗","View daily weekly-quota usage"))
             }.padding(.top,2)
             Spacer(minLength:0)
         }.overlay(alignment:.topTrailing) {
-            HStack(spacing:12) {
-                Button { model.pinned.toggle() } label: { Image(systemName:model.pinned ? "pin.fill" : "pin") }.foregroundStyle(model.pinned ? accent : .secondary).help(model.t("固定展开","Pin panel"))
-                Button { model.refresh(model.showingWeekly ? "weekly" : "refresh") } label: { Image(systemName:"arrow.clockwise") }.help(model.t("立即刷新","Refresh now")).disabled(model.busy)
-                Button(action:settings) { Image(systemName:"gearshape") }.help(model.t("设置","Settings"))
-            }.buttonStyle(.plain).font(.system(size:15,weight:.light)).foregroundStyle(.secondary).offset(y:1).headerControl()
+            VStack(alignment:.trailing,spacing:10) {
+                HStack(spacing:12) {
+                    Button { model.pinned.toggle() } label: { Image(systemName:model.pinned ? "pin.fill" : "pin") }.foregroundStyle(model.pinned ? accent : .secondary).help(model.t("固定展开","Pin panel"))
+                    Button { model.refresh(model.showingWeekly ? "weekly" : "refresh") } label: { Image(systemName:"arrow.clockwise") }.help(model.t("立即刷新","Refresh now")).disabled(model.activeBusy)
+                    Button(action:settings) { Image(systemName:"gearshape") }.help(model.t("设置","Settings"))
+                }.buttonStyle(.plain).font(.system(size:15,weight:.light)).foregroundStyle(.secondary).offset(y:1)
+                providerSwitcher
+            }.headerControl()
         }
+    }
+    var providerSwitcher: some View {
+        HStack(spacing:2) {
+            providerChip(.codex, label: "Codex")
+            providerChip(.gemini, label: "Gemini")
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(dark ? 0.08 : 0.06)))
+    }
+    func providerChip(_ provider: UsageProvider, label: String) -> some View {
+        let selected = model.activeProvider == provider
+        return Button { model.selectProvider(provider) } label: {
+            Text(label)
+                .font(.system(size:10,weight:selected ? .medium : .regular))
+                .foregroundStyle(selected ? accent : .secondary)
+                .padding(.horizontal,7).padding(.vertical,3)
+                .background(Capsule().fill(selected ? accent.opacity(dark ? 0.2 : 0.16) : .clear))
+                .contentShape(Capsule())
+        }.buttonStyle(.plain).accessibilityIdentifier("ProviderSwitch_\(provider.rawValue)")
+    }
+    var weeklyTriggerLabel: String {
+        if model.isGemini && model.geminiQuota == nil {
+            return model.t("7日 ", "7d ") + model.compactNumber(model.geminiWeeklyTotal)
+        }
+        return model.t("周已用 ","Week ") + (model.activeQuota?.weekly.map { String(format:"%.0f%%",$0.usedPercent) } ?? "--")
     }
     var resetText: String {
         if model.paused { return model.statusText }
-        let window = model.quota?.windows.min { $0.remainingPercent < $1.remainingPercent }
+        if model.isGemini && model.geminiQuota == nil {
+            return model.t("近5h ","5h ") + model.compactNumber(model.geminiRecent5hTokens) + model.t(" · 本地日志"," · Local")
+        }
+        let window = model.activeQuota?.windows.min { $0.remainingPercent < $1.remainingPercent }
         guard let raw = window?.resetsAt, let date = parsedDate(raw) else { return model.t("等待额度记录","Waiting for quota") }
         let hours = Int(max(0,date.timeIntervalSinceNow)/3600)
         if hours >= 24 { return model.chinese ? "\(hours/24)天\(hours%24)小时后重置" : "Resets in \(hours/24)d \(hours%24)h" }
@@ -194,7 +243,9 @@ struct WidgetView: View {
     }
     var sparkline: some View {
         GeometryReader { g in
-            let values = model.weekly.map { $0.consumedPercentagePoints }
+            let values: [Double?] = (model.isGemini && model.geminiQuota == nil)
+                ? model.geminiWeeklyTokens.map { $0.totalTokens.map(Double.init) }
+                : model.weekly.map { $0.consumedPercentagePoints }
             let maximum: Double = max(1,values.compactMap { $0 }.max() ?? 1)
             Path { path in
                 var connected = false
@@ -230,7 +281,7 @@ struct WidgetView: View {
                     .font(.system(size:12.5)).foregroundStyle(.secondary)
                 Spacer()
             }.frame(height:26,alignment:.top)
-            if let s = model.snapshot, s.period == model.preferences.period {
+            if let s = model.activeSnapshot, s.period == model.preferences.period {
                 ScrollView {
                     VStack(spacing:0) {
                         ForEach(Array(s.topTasks.enumerated()),id:\.element.id) { i, task in
@@ -245,7 +296,7 @@ struct WidgetView: View {
                 if s.topTasks.isEmpty { Text(model.t("此时间段暂无本地用量","No local usage in this period")).font(.caption).foregroundStyle(.secondary) }
                 summary(s.summary)
             } else {
-                Text(model.busy ? model.t("正在读取本地日志…","Reading local logs…") : model.t("点击刷新读取用量","Refresh to load usage"))
+                Text(model.activeBusy ? model.t("正在读取本地日志…","Reading local logs…") : model.t("点击刷新读取用量","Refresh to load usage"))
                     .font(.system(size:12)).foregroundStyle(.secondary).frame(maxWidth:.infinity,maxHeight:.infinity)
             }
         }.frame(maxHeight:.infinity)
@@ -284,7 +335,11 @@ struct WidgetView: View {
             }
             HStack(spacing:18) {
                 Text(model.t("缓存输入  ","Cached  ") + model.number(s.total.cachedInputTokens))
-                Text(model.t("推理输出  ","Reasoning  ") + model.number(s.total.reasoningOutputTokens))
+                if model.isGemini {
+                    Text(model.t("本地只读 · 含子代理归并","Local logs · Subagents merged"))
+                } else {
+                    Text(model.t("推理输出  ","Reasoning  ") + model.number(s.total.reasoningOutputTokens))
+                }
             }.font(.system(size:9.5,weight:.light)).foregroundStyle(.secondary)
         }.frame(height:74,alignment:.top)
     }
@@ -298,38 +353,70 @@ struct WidgetView: View {
         VStack(alignment:.leading,spacing:14) {
             HStack {
                 Button { model.showingWeekly = false } label: { Image(systemName:"chevron.left").frame(width:24,height:24).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityIdentifier("WeeklyQuotaCloseButton")
-                Text(model.t("七日周额度消耗","Daily weekly-quota usage")).font(.system(size:14,weight:.regular))
+                Text(model.isGemini && model.geminiQuota == nil ? model.t("七日 Token 消耗","7-day token usage") : model.t("七日周额度消耗","Daily weekly-quota usage")).font(.system(size:14,weight:.regular))
                 Spacer()
             }
-            Chart(Array(model.weekly.enumerated()),id:\.element.id) { i,day in
-                if let value = day.consumedPercentagePoints {
-                    BarMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent.opacity(0.18)).cornerRadius(3)
-                    LineMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value),series:.value("Segment",String(model.weekly.prefix(i+1).filter { $0.consumedPercentagePoints == nil }.count))).foregroundStyle(accent).lineStyle(StrokeStyle(lineWidth:1.4))
-                    PointMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent).symbolSize(14)
-                        .annotation(position:.top,spacing:6) {
-                            Text((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
-                                .font(.system(size:9.5,weight:.medium)).monospacedDigit().foregroundStyle(Color.primary.opacity(0.85)).fixedSize()
+            if model.isGemini && model.geminiQuota == nil {
+                let maxTokens: Double = max(1000, Double(model.geminiWeeklyTokens.compactMap(\.totalTokens).max() ?? 0) * 1.18)
+                Chart(Array(model.geminiWeeklyTokens.enumerated()),id:\.element.id) { i,day in
+                    if let tokens = day.totalTokens {
+                        let value = Double(tokens)
+                        BarMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Tokens",value)).foregroundStyle(accent.opacity(0.18)).cornerRadius(3)
+                        LineMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Tokens",value),series:.value("Segment",String(model.geminiWeeklyTokens.prefix(i+1).filter { $0.totalTokens == nil }.count))).foregroundStyle(accent).lineStyle(StrokeStyle(lineWidth:1.4))
+                        PointMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Tokens",value)).foregroundStyle(accent).symbolSize(14)
+                            .annotation(position:.top,spacing:6) {
+                                Text(model.compactNumber(tokens))
+                                    .font(.system(size:9.5,weight:.medium)).monospacedDigit().foregroundStyle(Color.primary.opacity(0.85)).fixedSize()
+                            }
+                            .accessibilityLabel(day.localDate)
+                            .accessibilityValue(model.compactNumber(tokens))
+                    }
+                }.chartXScale(domain:model.geminiWeeklyTokens.map { String($0.localDate.suffix(5)) },range:.plotDimension(padding:24))
+                    .chartYScale(domain:0...maxTokens)
+                    .chartYAxis {
+                        AxisMarks { value in
+                            AxisGridLine()
+                            AxisValueLabel {
+                                if let n = value.as(Double.self) {
+                                    Text(model.compactNumber(Int64(n))).font(.system(size:9))
+                                }
+                            }
                         }
-                        .accessibilityLabel(day.localDate)
-                        .accessibilityValue((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
-                }
-            }.chartXScale(domain:model.weekly.map { String($0.localDate.suffix(5)) },range:.plotDimension(padding:24))
-                .chartYScale(domain:0...max(100,(model.weekly.compactMap(\.consumedPercentagePoints).max() ?? 0)*1.15)).frame(height:290)
-            Text(model.t("≥ 为可观测部分，无记录的日期留空。","≥ indicates partial observations; missing dates stay blank."))
-                .font(.system(size:9)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+                    }
+                    .frame(height:290)
+                Text(model.t("仅统计本地 Antigravity 日志，无记录的日期留空；官方剩余百分比暂未开放外部接口。","Counts local Antigravity logs only; missing dates stay blank. Official remaining quota API is not publicly exposed."))
+                    .font(.system(size:9)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+            } else {
+                Chart(Array(model.weekly.enumerated()),id:\.element.id) { i,day in
+                    if let value = day.consumedPercentagePoints {
+                        BarMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent.opacity(0.18)).cornerRadius(3)
+                        LineMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value),series:.value("Segment",String(model.weekly.prefix(i+1).filter { $0.consumedPercentagePoints == nil }.count))).foregroundStyle(accent).lineStyle(StrokeStyle(lineWidth:1.4))
+                        PointMark(x:.value("Date",String(day.localDate.suffix(5))),y:.value("Usage",value)).foregroundStyle(accent).symbolSize(14)
+                            .annotation(position:.top,spacing:6) {
+                                Text((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
+                                    .font(.system(size:9.5,weight:.medium)).monospacedDigit().foregroundStyle(Color.primary.opacity(0.85)).fixedSize()
+                            }
+                            .accessibilityLabel(day.localDate)
+                            .accessibilityValue((day.isPartial ? "≥ " : "") + String(format:"%.1f%%",value))
+                    }
+                }.chartXScale(domain:model.weekly.map { String($0.localDate.suffix(5)) },range:.plotDimension(padding:24))
+                    .chartYScale(domain:0...max(100,(model.weekly.compactMap(\.consumedPercentagePoints).max() ?? 0)*1.15)).frame(height:290)
+                Text(model.t("≥ 为可观测部分，无记录的日期留空。","≥ indicates partial observations; missing dates stay blank."))
+                    .font(.system(size:9)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+            }
             Spacer(minLength:0)
         }.frame(maxHeight:.infinity)
     }
     var footer: some View {
         HStack {
-            if let error = model.error { Text(error).foregroundStyle(.red).lineLimit(1).help(error) }
-            else if model.busy { Text(model.progressText).foregroundStyle(.secondary) }
+            if let error = model.activeError { Text(error).foregroundStyle(.red).lineLimit(1).help(error) }
+            else if model.activeBusy { Text(model.progressText).foregroundStyle(.secondary) }
             else if model.paused { Text(model.statusText).foregroundStyle(.secondary) }
-            else if let s = model.snapshot {
+            else if let s = model.activeSnapshot {
                 Text(model.t("前9 ","Top 9 ")+String(format:"%.1f%%",s.topTasks.reduce(0) { $0+$1.percentOfPeriod })+model.t(" · 其他 "," · Other ")+model.number(s.summary.otherTasksTotal.totalTokens)).foregroundStyle(.secondary)
             }
             Spacer(minLength:4)
-            Text(model.t("最后刷新 ","Updated ")+model.dateText(model.snapshot?.lastUpdated ?? model.quota?.timestamp,timeOnly:true)).foregroundStyle(.secondary)
+            Text(model.t("最后刷新 ","Updated ")+model.dateText(model.activeSnapshot?.lastUpdated ?? model.activeQuota?.timestamp,timeOnly:true)).foregroundStyle(.secondary)
         }.font(.system(size:8.5,weight:.light)).frame(height:14)
     }
 }
@@ -364,28 +451,49 @@ struct SettingsView: View {
                 if let loginError = model.loginError { Text(loginError).font(.caption).foregroundStyle(.secondary) }
             }
             Section(model.t("数据来源","Data source")) {
-                Text(model.sourceHome.isEmpty ? model.t("自动检测 ~/.codex","Auto-detect ~/.codex") : model.sourceHome)
-                    .font(.system(size:11,design:.monospaced)).textSelection(.enabled)
-                HStack {
-                    Button(model.t("选择 Codex Home…","Choose Codex Home…")) { chooseHome() }
-                    Button(model.t("自动检测","Auto-detect")) { model.preferences.home = "" }
+                Picker(model.t("当前显示","Active source"),selection:Binding(get:{ model.activeProvider },set:{ model.selectProvider($0) })) {
+                    Text("Codex").tag(UsageProvider.codex)
+                    Text("Gemini (Antigravity)").tag(UsageProvider.gemini)
+                }
+                VStack(alignment:.leading,spacing:4) {
+                    Text("Codex Home").font(.caption).foregroundStyle(.secondary)
+                    Text(model.sourceHome.isEmpty ? model.t("自动检测 ~/.codex","Auto-detect ~/.codex") : model.sourceHome)
+                        .font(.system(size:11,design:.monospaced)).textSelection(.enabled)
+                    HStack {
+                        Button(model.t("选择 Codex Home…","Choose Codex Home…")) { chooseHome() }
+                        Button(model.t("自动检测","Auto-detect")) { model.preferences.home = "" }
+                    }
+                }
+                VStack(alignment:.leading,spacing:4) {
+                    Text("Gemini (Antigravity) Home").font(.caption).foregroundStyle(.secondary)
+                    Text(model.geminiSourceHome.isEmpty ? model.t("自动检测 ~/.gemini/antigravity","Auto-detect ~/.gemini/antigravity") : model.geminiSourceHome)
+                        .font(.system(size:11,design:.monospaced)).textSelection(.enabled)
+                    HStack {
+                        Button(model.t("选择 Gemini Home…","Choose Gemini Home…")) { chooseGeminiHome() }
+                        Button(model.t("自动检测","Auto-detect")) { model.preferences.geminiHomePath = "" }
+                    }
                 }
                 Text(model.t("只读本地用量日志，不读取登录凭据、不联网。","Reads local usage logs only; no credentials or network access."))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section(model.t("维护","Maintenance")) {
-                if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                if let error = model.activeError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
                 HStack {
-                    Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.busy)
+                    Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.activeBusy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.6 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.7 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped).frame(width:480,height:650)
+        }.formStyle(.grouped).frame(width:480,height:720)
     }
     func chooseHome() {
         let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.allowsMultipleSelection = false; p.showsHiddenFiles = true
         p.message = model.t("选择包含 sessions 或 archived_sessions 的 Codex Home 目录。","Choose the Codex Home folder containing sessions or archived_sessions.")
         if p.runModal() == .OK, let url = p.url { model.preferences.home = url.path }
+    }
+    func chooseGeminiHome() {
+        let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.allowsMultipleSelection = false; p.showsHiddenFiles = true
+        p.message = model.t("选择包含 brain 的 Antigravity 数据目录（默认 ~/.gemini/antigravity）。","Choose the Antigravity data folder containing brain (default ~/.gemini/antigravity).")
+        if p.runModal() == .OK, let url = p.url { model.preferences.geminiHomePath = url.path }
     }
 }

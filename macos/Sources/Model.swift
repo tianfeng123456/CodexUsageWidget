@@ -3,6 +3,11 @@ import AppKit
 import Combine
 import ServiceManagement
 
+enum UsageProvider: String, Codable, CaseIterable {
+    case codex
+    case gemini
+}
+
 struct Preferences: Codable, Equatable {
     var theme = "dark"
     var language = "system"
@@ -18,6 +23,17 @@ struct Preferences: Codable, Equatable {
     var autoCollapse = true
     var pauseOnSleep = true
     var home = ""
+    // Optional storage keeps settings written before mac.7 fully compatible.
+    var provider: String? = nil
+    var activeProvider: UsageProvider {
+        get { UsageProvider(rawValue: provider ?? "codex") ?? .codex }
+        set { provider = newValue.rawValue }
+    }
+    var geminiHome: String? = nil
+    var geminiHomePath: String {
+        get { geminiHome ?? "" }
+        set { geminiHome = newValue.isEmpty ? nil : newValue }
+    }
     var period = 0
     var x: Double? = nil
     var y: Double? = nil
@@ -27,6 +43,7 @@ struct Preferences: Codable, Equatable {
         if !["system","zh","en"].contains(p.language) { p.language = "system" }
         if !["circle","glow","capsule"].contains(p.idleStyle) { p.idleStyle = "circle" }
         if p.iconScale != nil { p.idleScale = p.idleScale }
+        if let rawProvider = p.provider, UsageProvider(rawValue: rawProvider) == nil { p.provider = "codex" }
         p.period = min(3,max(0,p.period)); p.transparency = min(1,max(0,p.transparency))
         return p
     }
@@ -100,6 +117,18 @@ func formatTokens(_ value: Int64, chinese: Bool) -> String {
     formatter.numberStyle = .decimal; formatter.maximumFractionDigits = 0
     return formatter.string(from: NSNumber(value: value)) ?? "0"
 }
+func formatCompactTokens(_ value: Int64, chinese: Bool) -> String {
+    if value <= 0 { return "0" }
+    let n = Double(value)
+    let units: [(Double,String)] = chinese ? [(1e12,"万亿"),(1e8,"亿"),(1e4,"万")] : [(1e12,"T"),(1e9,"B"),(1e6,"M"),(1e3,"K")]
+    if let (scale,suffix) = units.first(where: { n >= $0.0 }) {
+        let scaled = n / scale
+        if scaled >= 100 { return String(format: "%.0f%@", scaled, suffix) }
+        if scaled >= 10 { return String(format: "%.1f%@", scaled, suffix) }
+        return String(format: "%.2f%@", scaled, suffix)
+    }
+    return String(value)
+}
 
 private final class BridgeLineReader {
     var buffer = Data()
@@ -122,6 +151,15 @@ final class Model: ObservableObject {
     @Published var quota: Quota?
     @Published var snapshot: Snapshot?
     @Published var weekly: [WeeklyDay] = []
+    @Published var geminiQuota: Quota?
+    @Published var geminiSnapshot: Snapshot?
+    @Published var geminiWeeklyTokens: [WeeklyTokenDay] = []
+    @Published var geminiTodayTokens: Int64 = 0
+    @Published var geminiRecent5hTokens: Int64 = 0
+    @Published var geminiSourceHome = ""
+    @Published var geminiTaskModels: [String: [String]] = [:]
+    @Published var geminiBusy = false
+    @Published var geminiError: String?
     @Published var headerControls: [CGRect] = []
     @Published var settingsOpen = false
     @Published var expanded = false
@@ -137,6 +175,7 @@ final class Model: ObservableObject {
     private let persistSettings: Bool
     var settingsChanged: ((Preferences) -> Void)?
     var quotaChanged: (() -> Void)?
+    private let geminiMonitor = GeminiUsageMonitor()
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
@@ -149,16 +188,56 @@ final class Model: ObservableObject {
         self.persistSettings = persistSettings
         preferences = persistSettings ? ((try? JSONDecoder().decode(Preferences.self, from: Data(contentsOf: Self.settingsURL))) ?? Preferences()) : Preferences()
         preferences = preferences.normalized()
+        geminiMonitor.onUpdate = { [weak self] result in
+            guard let self else { return }
+            self.geminiSourceHome = result.home
+            if result.snapshot.period == self.preferences.period {
+                self.geminiSnapshot = result.snapshot
+            }
+            self.geminiWeeklyTokens = result.weeklyTokens
+            self.geminiTodayTokens = result.todayTokens
+            self.geminiRecent5hTokens = result.recent5hTokens
+            self.geminiTaskModels = result.taskModels
+            self.geminiBusy = false
+            self.geminiError = nil
+            self.quotaChanged?()
+        }
     }
+    var activeProvider: UsageProvider { preferences.activeProvider }
+    var isGemini: Bool { activeProvider == .gemini }
+    var activeSnapshot: Snapshot? { isGemini ? geminiSnapshot : snapshot }
+    var activeBusy: Bool { isGemini ? geminiBusy : busy }
+    var activeError: String? { isGemini ? geminiError : error }
+    var activeQuota: Quota? { isGemini ? geminiQuota : quota }
     var chinese: Bool {
         preferences.language == "zh" || (preferences.language == "system" && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
     }
     func t(_ zh: String, _ en: String) -> String { chinese ? zh : en }
     func number(_ n: Int64) -> String { formatTokens(n, chinese: chinese) }
-    var displayedRemaining: Int? { quota?.remaining.map { Int($0.rounded(.toNearestOrAwayFromZero)) } }
-    var remainingText: String { displayedRemaining.map { "\($0)%" } ?? "--" }
+    func compactNumber(_ n: Int64) -> String { formatCompactTokens(n, chinese: chinese) }
+    var displayedRemaining: Int? { activeQuota?.remaining.map { Int($0.rounded(.toNearestOrAwayFromZero)) } }
+    var remainingText: String {
+        if isGemini && geminiQuota == nil {
+            if geminiSnapshot == nil && geminiBusy { return "--" }
+            return compactNumber(geminiTodayTokens)
+        }
+        return displayedRemaining.map { "\($0)%" } ?? "--"
+    }
+    var menuBarTitle: String {
+        if isGemini {
+            return "G " + remainingText
+        }
+        return remainingText
+    }
+    var geminiWeeklyTotal: Int64 {
+        geminiWeeklyTokens.compactMap(\.totalTokens).reduce(0, +)
+    }
     var statusText: String {
         if paused { return t("监控已暂停", "Monitoring paused") }
+        if isGemini && geminiQuota == nil {
+            if geminiSnapshot == nil && geminiBusy { return t("正在读取", "Reading") }
+            return t("近5h ", "5h ") + compactNumber(geminiRecent5hTokens)
+        }
         guard let r = displayedRemaining else { return busy ? t("正在同步", "Syncing") : t("等待数据", "Waiting for data") }
         switch r {
         case 70...: return t("额度充足", "Plenty remaining")
@@ -169,16 +248,27 @@ final class Model: ObservableObject {
         }
     }
     var progressText: String {
-        progressStage.isEmpty ? t("正在刷新…","Refreshing…") :
+        if isGemini { return t("正在读取本地日志…", "Reading local logs…") }
+        return progressStage.isEmpty ? t("正在刷新…","Refreshing…") :
         progress >= 1 ? t("正在汇总…","Summarizing…") :
         t("正在索引 ","Indexing ")+String(format:"%.0f%%",progress*100)
     }
     func taskDetails(_ task:TaskUsage) -> String {
         let u = task.usage
-        return task.title + (task.isArchived ? t("（已归档）"," (Archived)") : "") + "\n" +
-            t("总计 ","Total ")+number(u.totalTokens)+"\n" +
-            t("输入 ","Input ")+number(u.inputTokens)+" · "+t("缓存 ","Cached ")+number(u.cachedInputTokens)+"\n" +
-            t("输出 ","Output ")+number(u.outputTokens)+" · "+t("推理 ","Reasoning ")+number(u.reasoningOutputTokens)
+        var lines = [
+            task.title + (task.isArchived ? t("（已归档）"," (Archived)") : ""),
+            t("总计 ","Total ")+number(u.totalTokens),
+            t("输入 ","Input ")+number(u.inputTokens)+" · "+t("缓存 ","Cached ")+number(u.cachedInputTokens)
+        ]
+        if isGemini {
+            lines.append(t("输出 ","Output ")+number(u.outputTokens))
+            if let models = geminiTaskModels[task.rootTaskId], !models.isEmpty {
+                lines.append(t("模型 ","Models ")+models.joined(separator:", "))
+            }
+        } else {
+            lines.append(t("输出 ","Output ")+number(u.outputTokens)+" · "+t("推理 ","Reasoning ")+number(u.reasoningOutputTokens))
+        }
+        return lines.joined(separator:"\n")
     }
     func syncLoginStatus() {
         let status = SMAppService.mainApp.status
@@ -208,6 +298,7 @@ final class Model: ObservableObject {
     }
     func start() {
         stop(); paused = false; busy = true; ready = false; error = nil; progress = 0; progressStage = ""
+        startGemini()
         let generation = UUID(); self.generation = generation
         let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/CodexUsageWidget.Bridge")
         let p = Process(); p.executableURL = executable
@@ -251,16 +342,27 @@ final class Model: ObservableObject {
             send(initCommand)
         } catch { self.error = error.localizedDescription; busy = false }
     }
+    func startGemini() {
+        guard !paused else { return }
+        geminiBusy = true; geminiError = nil
+        geminiMonitor.start(home: preferences.geminiHomePath, period: preferences.period)
+    }
     func stop() {
         generation = UUID(); pendingCommand = nil; ready = false
         output?.readabilityHandler = nil; output = nil
         try? input?.close(); input = nil
         if let p = process, p.isRunning { p.terminate() }
         process = nil
+        geminiMonitor.stop()
     }
-    func pause() { paused = true; stop(); busy = false }
+    func pause() { paused = true; stop(); busy = false; geminiBusy = false }
     func refresh(_ command: String = "refresh") {
         if paused { return }
+        if isGemini {
+            geminiBusy = true; geminiError = nil
+            geminiMonitor.refresh(home: preferences.geminiHomePath, period: preferences.period, resetCache: command == "rebuild")
+            return
+        }
         if process?.isRunning != true || (!ready && !busy) { start(); return }
         let request: [String:Any] = ["command":command, "period":preferences.period]
         if busy || !ready { pendingCommand = request; return }
@@ -268,6 +370,13 @@ final class Model: ObservableObject {
     }
     func selectPeriod(_ p: Int) {
         preferences.period = p; showingWeekly = false; refresh()
+    }
+    func selectProvider(_ provider: UsageProvider) {
+        guard preferences.activeProvider != provider else { return }
+        preferences.activeProvider = provider
+        showingWeekly = false
+        quotaChanged?()
+        if !paused { refresh() }
     }
     private func send(_ value: [String:Any]) {
         guard var data = try? JSONSerialization.data(withJSONObject:value) else { return }

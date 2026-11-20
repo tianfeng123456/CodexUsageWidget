@@ -1,6 +1,6 @@
 # Codex 用量面板 · macOS
 
-本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.6。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
+本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.7。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
 
 ## 使用
 
@@ -76,3 +76,7 @@ macos/.build/rendering-tests /tmp/codex-widget-renders
 ## mac.6 透明度修复
 
 玻璃透明度滑块现在同时更新系统毛玻璃材质层和背景颜色层，按 1% 调节并实时保存。文字、图标和进度线不跟随背景变淡；100% 端点保留少量材质和命中层。原生联动测试验证 0% / 25% / 50% / 100% 对应的实际 NSVisualEffectView alphaValue，桌面滑块两端响应已检查。
+
+## mac.7 Gemini (Antigravity) 双源本地监控
+
+新增 Codex / Gemini (Antigravity) 双源切换（面板顶部切换胶囊、右键菜单、顶部菜单栏与设置窗口均支持）。Gemini 侧只读本地 `~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl` 和只读打开 `conversation_summaries.db`，采用文件 mtime/size 增量缓存与 FSEvents 事件防抖监听，支持显式标题恢复、子代理归并、四周期任务排行和七日 Token 消耗曲线。不读取登录凭据、不联网；官方剩余百分比接口暂未公开，数据模型已预留接入槽位。

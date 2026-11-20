@@ -9,7 +9,7 @@ APP="$PWD/dist/Codex Usage Widget.app"
 "$DOTNET_BIN" clean src/CodexUsageWidget.Bridge -c Release -r "osx-$ARCH" >/dev/null
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 "$DOTNET_BIN" publish src/CodexUsageWidget.Bridge -c Release -r "osx-$ARCH" --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$APP/Contents/Helpers"
-xcrun swiftc -O -target "$ARCH-apple-macosx13.0" macos/Sources/*.swift -o "$APP/Contents/MacOS/CodexUsageWidget" -framework AppKit -framework SwiftUI -framework Charts -framework ServiceManagement
+xcrun swiftc -O -target "$ARCH-apple-macosx13.0" macos/Sources/*.swift -o "$APP/Contents/MacOS/CodexUsageWidget" -framework AppKit -framework SwiftUI -framework Charts -framework ServiceManagement -framework CoreServices -lsqlite3
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,7 +19,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Codex 用量面板</string>
 <key>CFBundleExecutable</key><string>CodexUsageWidget</string>
 <key>CFBundleShortVersionString</key><string>1.3.0</string>
-<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleVersion</key><string>7</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>

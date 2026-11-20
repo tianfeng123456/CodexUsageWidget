@@ -182,16 +182,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             hoverTrigger = nil; position()
         }
         if old.home != model.preferences.home { model.snapshot = nil; model.quota = nil; model.weekly = []; if !model.paused { model.start() } }
+        if old.geminiHome != model.preferences.geminiHome {
+            model.geminiSnapshot = nil; model.geminiWeeklyTokens = []; model.geminiTodayTokens = 0; model.geminiRecent5hTokens = 0; model.geminiTaskModels = [:]
+            if !model.paused { model.startGemini() }
+        }
         if old.pauseOnSleep != model.preferences.pauseOnSleep { updateSleep() }
         syncPointerMonitor(); updateStatus()
     }
     func updateStatus() {
         guard status != nil else { return }
-        status.button?.image = NSImage(systemSymbolName:"circle.hexagongrid",accessibilityDescription:"Codex Usage")
-        status.button?.title = " " + model.remainingText
-        status.button?.toolTip = model.t("Codex 剩余额度 · ","Codex remaining · ")+model.statusText
+        status.button?.image = NSImage(systemSymbolName:model.isGemini ? "sparkles" : "circle.hexagongrid",accessibilityDescription:model.isGemini ? "Gemini Usage" : "Codex Usage")
+        status.button?.title = " " + model.menuBarTitle
+        status.button?.toolTip = (model.isGemini ? model.t("Gemini 本地用量 · ","Gemini local usage · ") : model.t("Codex 剩余额度 · ","Codex remaining · ")) + model.statusText
         let menu = NSMenu()
         add(menu,model.t("显示 / 隐藏","Show / Hide"),#selector(toggleVisible))
+        menu.addItem(.separator())
+        let codexItem = add(menu,"Codex",#selector(switchToCodex)); codexItem.state = !model.isGemini ? .on : .off
+        let geminiItem = add(menu,"Gemini (Antigravity)",#selector(switchToGemini)); geminiItem.state = model.isGemini ? .on : .off
+        menu.addItem(.separator())
         add(menu,model.t("立即刷新","Refresh now"),#selector(refresh))
         add(menu,model.t("设置…","Settings…"),#selector(showSettings))
         model.syncLoginStatus()
@@ -203,6 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSMenuItem(title:title,action:action,keyEquivalent:""); item.target = self; menu.addItem(item); return item
     }
     @objc func toggleVisible() { if panel.isVisible { panel.orderOut(nil) } else { panel.orderFrontRegardless(); setExpanded(true) }; syncPointerMonitor() }
+    @objc func switchToCodex() { model.selectProvider(.codex); updateStatus() }
+    @objc func switchToGemini() { model.selectProvider(.gemini); updateStatus() }
     @objc func refresh() { model.refresh(model.showingWeekly ? "weekly" : "refresh") }
     @objc func quit() { NSApp.terminate(nil) }
     @objc func toggleLogin() {
@@ -216,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setExpanded(false)
         panel.orderFrontRegardless()
         if settingsWindow == nil {
-            let w = NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:650),styleMask:[.titled,.closable],backing:.buffered,defer:false)
+            let w = NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:720),styleMask:[.titled,.closable],backing:.buffered,defer:false)
             w.delegate = self; w.isReleasedWhenClosed = false; w.contentView = NSHostingView(rootView:SettingsView(model:model)); w.center(); settingsWindow = w
         }
         settingsWindow?.title = model.t("Codex 用量 · 设置","Codex Usage · Settings")

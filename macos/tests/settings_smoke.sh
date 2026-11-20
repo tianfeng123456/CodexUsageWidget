@@ -7,5 +7,5 @@ python3 - <<'PY'
 from pathlib import Path
 Path('macos/.build/AppUnderTest.swift').write_text(Path('macos/Sources/App.swift').read_text().replace('@main\n',''))
 PY
-xcrun swiftc macos/Sources/Model.swift macos/Sources/Geometry.swift macos/Sources/Views.swift macos/.build/AppUnderTest.swift macos/tests/SettingsTests.swift -o macos/.build/settings-tests -framework AppKit -framework SwiftUI -framework Charts -framework ServiceManagement
+xcrun swiftc macos/Sources/Model.swift macos/Sources/GeminiUsage.swift macos/Sources/Geometry.swift macos/Sources/Views.swift macos/.build/AppUnderTest.swift macos/tests/SettingsTests.swift -o macos/.build/settings-tests -framework AppKit -framework SwiftUI -framework Charts -framework ServiceManagement -framework CoreServices -lsqlite3
 macos/.build/settings-tests

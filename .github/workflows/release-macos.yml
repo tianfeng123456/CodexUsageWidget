@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p macos/.build
-          xcrun swiftc macos/Sources/Model.swift macos/Sources/Geometry.swift macos/tests/ModelTests.swift -o macos/.build/model-tests -framework AppKit -framework Combine -framework ServiceManagement
+          xcrun swiftc macos/Sources/Model.swift macos/Sources/GeminiUsage.swift macos/Sources/Geometry.swift macos/tests/ModelTests.swift -o macos/.build/model-tests -framework AppKit -framework Combine -framework ServiceManagement -framework CoreServices -lsqlite3
           macos/.build/model-tests
           macos/build.sh
       - name: Package and verify archive
@@ -67,6 +67,7 @@ jobs:
           cat > macos/.build/release-notes.md <<'NOTES'
           Codex 用量面板 macOS 原生版，适用于 Apple Silicon（M1/M2/M3/M4 等）及 macOS 13+。
 
+          - mac.7 新增：支持 Codex / Gemini (Antigravity) 双源切换，纯本地只读统计 Antigravity 对话 Token 消耗、子代理归并、任务排行与七日趋势。
           - mac.6 修复：透明度滑块现在实时控制系统毛玻璃材质层，文字与图标保持清晰。
           - 原生玻璃外观，三种待机样式；复用 Windows 版统计引擎。
           - 恢复桌面任务名称，修复窗口拖动和周图点击。

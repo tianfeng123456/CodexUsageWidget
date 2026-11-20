@@ -47,5 +47,41 @@ import SwiftUI
             }
         }
         print("PASS: 24 native renders at 50%, 75% and 100%, 3 idle styles, fixed 420x540 panel and weekly chart, light/dark, Chinese/English; user settings untouched")
+
+        // Additional Gemini mode renders (dark Chinese + light English) for visual verification.
+        model.preferences.activeProvider = .gemini
+        model.geminiTodayTokens = 13_420_000
+        model.geminiRecent5hTokens = 4_850_000
+        model.geminiSnapshot = Snapshot(period:0,topTasks:tasks,summary:Summary(total:totals,taskCount:10,otherTasksTotal:token),lastUpdated:"2026-11-20T14:00:00Z")
+        model.geminiWeeklyTokens = [
+            WeeklyTokenDay(localDate:"2026-11-14",totalTokens:nil,eventCount:0),
+            WeeklyTokenDay(localDate:"2026-11-15",totalTokens:3_200_000,eventCount:4),
+            WeeklyTokenDay(localDate:"2026-11-16",totalTokens:8_900_000,eventCount:9),
+            WeeklyTokenDay(localDate:"2026-11-17",totalTokens:5_400_000,eventCount:6),
+            WeeklyTokenDay(localDate:"2026-11-18",totalTokens:nil,eventCount:0),
+            WeeklyTokenDay(localDate:"2026-11-19",totalTokens:11_200_000,eventCount:12),
+            WeeklyTokenDay(localDate:"2026-11-20",totalTokens:13_420_000,eventCount:15)
+        ]
+        for (theme, lang) in [("dark","zh"),("light","en")] {
+            for kind in ["circle","capsule","panel","weekly"] {
+                model.preferences.idleScale = 1.0
+                model.preferences.language = lang
+                model.preferences.idleStyle = (kind == "panel" || kind == "weekly") ? "circle" : kind
+                model.expanded = (kind == "panel" || kind == "weekly")
+                model.showingWeekly = kind == "weekly"
+                let size = model.expanded ? NSSize(width:420,height:540) : WidgetGeometry.idleSize(kind,scale:1.0)
+                let window = NSWindow(contentRect:NSRect(origin:.zero,size:size),styleMask:.borderless,backing:.buffered,defer:false)
+                window.appearance = NSAppearance(named:theme == "dark" ? .darkAqua : .aqua)
+                let view = NSHostingView(rootView:WidgetView(model:model,settings:{},hover:{_ in},startDrag:{_ in},collapse:{}))
+                view.sizingOptions = []; window.contentView = view; view.frame = NSRect(origin:.zero,size:size)
+                view.layoutSubtreeIfNeeded(); RunLoop.current.run(until:Date().addingTimeInterval(0.08))
+                guard let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds) else { fatalError("No bitmap") }
+                view.cacheDisplay(in:view.bounds,to:bitmap)
+                guard let png = bitmap.representation(using:.png,properties:[:]) else { fatalError("No PNG") }
+                try png.write(to:output.appendingPathComponent("gemini-\(theme)-\(kind).png"))
+                window.contentView = nil
+            }
+        }
+        print("PASS: 8 Gemini native renders (dark-zh & light-en, circle/capsule/panel/weekly)")
     }
 }
