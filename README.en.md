@@ -46,10 +46,13 @@ The app reads `~/.codex` by default; select another Codex Home in Settings if
 needed. Only local history readable on the current Mac is included.
 
 The Mac app offers native glass materials, Glow / Circle / Capsule idle styles,
-and a 50%–125% icon-size slider with live desktop preview. Opening Settings
-collapses the widget while preserving normal hover expansion. Daily percentages
-appear directly on the weekly chart. See the [Mac documentation](macos/README.md)
-for features, data migration, and build instructions.
+a 50%–125% icon-size slider with live desktop preview, and a Codex / Gemini
+(Antigravity) dual-source switcher (Gemini mode reads local `~/.gemini/antigravity`
+logs for token totals, subagent merging, task rankings, and a 7-day trend).
+Opening Settings collapses the widget while preserving normal hover expansion.
+Daily values appear directly on the weekly chart. See the
+[Mac documentation](macos/README.md) for features, data migration, and build
+instructions.
 
 ### Windows installation
 

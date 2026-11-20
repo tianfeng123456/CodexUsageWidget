@@ -31,7 +31,7 @@ shasum -a 256 -c SHA256SUMS.txt
 
 升级时先从菜单栏菜单退出旧版，再替换应用。设置与用量索引保存在 `~/Library/Application Support/CodexUsageWidget/`，替换应用会继续使用这些数据。应用默认读取当前 Mac 的 `~/.codex`，也可在设置中选择 Codex Home；仅统计这台 Mac 能读取的本地历史日志。
 
-Mac 版提供原生玻璃外观、微光 / 圆环 / 胶囊三种待机样式，以及 50%–125% 图标大小实时预览。打开设置时先收起，鼠标经过仍可展开；七日周图直接标注每日百分比。更多功能、数据迁移与构建说明见 [Mac 版文档](macos/README.md)。
+Mac 版提供原生玻璃外观、微光 / 圆环 / 胶囊三种待机样式、50%–125% 图标大小实时预览，以及 Codex / Gemini（Antigravity）双源切换（Gemini 侧只读本地 `~/.gemini/antigravity` 日志统计 Token 消耗、子代理归并、任务排行与七日趋势）。打开设置时先收起，鼠标经过仍可展开；七日周图直接标注数值。更多功能、数据迁移与构建说明见 [Mac 版文档](macos/README.md)。
 
 ### Windows 安装
 
