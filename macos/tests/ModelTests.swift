@@ -151,6 +151,28 @@ import SQLite3
         model.geminiRecent5hTokens = todayRes.recent5hTokens
         assert(model.isGemini && model.remainingText == "8.50K" && model.menuBarTitle == "G 8.50K")
 
-        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner & subagent merge")
+        // Official agy CLI JSON quota parsing tests.
+        let agyJSON = """
+        {"status":"SUCCESS","command":{"name":"usage","data":{"groups":[
+          {"name":"Gemini Models","buckets":[
+            {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.99,"reset_time":"2026-11-28T08:52:34Z"},
+            {"id":"gemini-5h","window":"5h","remaining_fraction":0.9648,"reset_time":"2026-11-21T13:52:34Z"}
+          ]},
+          {"name":"Claude and GPT models","buckets":[
+            {"id":"3p-5h","window":"5h","remaining_fraction":0.5,"reset_time":"2026-11-21T14:00:00Z"}
+          ]}
+        ]}}}
+        """.data(using: .utf8)!
+        let parsedGeminiQuota = GeminiQuotaParser.parse(agyJSON, now: now)
+        assert(parsedGeminiQuota != nil)
+        assert(parsedGeminiQuota?.primary?.windowMinutes == 300)
+        assert(parsedGeminiQuota?.weekly?.windowMinutes == 10080)
+        assert(abs((parsedGeminiQuota?.remaining ?? 0) - 96.48) < 0.01)
+        assert(abs((parsedGeminiQuota?.weekly?.usedPercent ?? 0) - 1.0) < 0.01)
+        model.geminiQuota = parsedGeminiQuota
+        assert(model.remainingText == "96%" && model.menuBarTitle == "G 96%" && model.statusText == "Plenty remaining")
+        assert(GeminiQuotaParser.parse(Data("{\"status\":\"ERROR\"}".utf8)) == nil)
+
+        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner, subagent merge & official agy CLI quota parser")
     }
 }

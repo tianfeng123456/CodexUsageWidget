@@ -18,8 +18,9 @@ struct Glass: NSViewRepresentable {
 }
 extension Model {
     var tint: Color {
-        if isGemini && geminiQuota == nil {
-            return Color(red:0.46,green:0.68,blue:0.99)
+        if isGemini {
+            guard let n = displayedRemaining else { return Color(red:0.46,green:0.68,blue:0.99) }
+            return n >= 30 ? Color(red:0.46,green:0.68,blue:0.99) : n >= 10 ? Color(red:1,green:0.80,blue:0.45) : n > 0 ? .orange : .red
         }
         guard let n = displayedRemaining else { return .secondary }
         return n >= 30 ? Color(red:0.31,green:0.82,blue:0.66) : n >= 10 ? Color(red:1,green:0.80,blue:0.45) : n > 0 ? .orange : .red
@@ -120,8 +121,8 @@ struct WidgetView: View {
     @Environment(\.colorScheme) var scheme
     var dark: Bool { scheme == .dark }
     var accent: Color {
-        if model.isGemini && model.geminiQuota == nil {
-            return dark ? model.tint : Color(red:0.22,green:0.47,blue:0.88)
+        if model.isGemini {
+            return (model.displayedRemaining ?? 100) >= 30 && !dark ? Color(red:0.22,green:0.47,blue:0.88) : model.tint
         }
         return (model.displayedRemaining ?? 0) >= 30 && !dark ? Color(red:0.08,green:0.65,blue:0.45) : model.tint
     }
@@ -141,7 +142,7 @@ struct WidgetView: View {
                     Text(model.remainingText).font(.system(size:compactGemini ? 20 : 26,weight:.light)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
                     Wave().stroke(accent,style:StrokeStyle(lineWidth:1.4,lineCap:.round)).frame(width:compactGemini ? 24 : 34,height:15)
                     VStack(alignment:.leading,spacing:3) {
-                        Text(compactGemini ? "Gemini" : model.t("剩余额度","Remaining")).foregroundStyle(.secondary)
+                        Text(model.isGemini ? (model.geminiQuota != nil ? model.t("Gemini 剩余","Gemini left") : "Gemini") : model.t("剩余额度","Remaining")).foregroundStyle(.secondary)
                         Text(model.statusText).foregroundStyle(accent)
                     }.font(.system(size:10.5)).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength:0)
@@ -179,7 +180,7 @@ struct WidgetView: View {
         HStack(alignment:.top,spacing:16) {
             Text(model.remainingText).font(.system(size:55,weight:.ultraLight)).monospacedDigit().tracking(-2).lineLimit(1).minimumScaleFactor(0.45).frame(width:112,alignment:.leading).padding(.top,4).contentShape(Rectangle())
             VStack(alignment:.leading,spacing:5) {
-                Text(model.isGemini && model.geminiQuota == nil ? model.t("Gemini 今日","Gemini today") : model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).contentShape(Rectangle())
+                Text(model.isGemini ? (model.geminiQuota != nil ? model.t("Gemini 剩余","Gemini left") : model.t("Gemini 今日","Gemini today")) : model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).contentShape(Rectangle())
                 Text(resetText).font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1).contentShape(Rectangle())
                 Button {
                     model.showingWeekly.toggle()
@@ -191,7 +192,7 @@ struct WidgetView: View {
                             .font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1)
                         sparkline.frame(width:48,height:14).allowsHitTesting(false).accessibilityHidden(true)
                     }.frame(minHeight:24).contentShape(Rectangle())
-                }.buttonStyle(.plain).headerControl().accessibilityIdentifier("WeeklyQuotaTrendButton").help(model.isGemini && model.geminiQuota == nil ? model.t("查看七日 Token 消耗","View 7-day token usage") : model.t("查看七日周额度消耗","View daily weekly-quota usage"))
+                }.buttonStyle(.plain).headerControl().accessibilityIdentifier("WeeklyQuotaTrendButton").help(model.isGemini ? model.t("查看七日 Token 消耗","View 7-day token usage") : model.t("查看七日周额度消耗","View daily weekly-quota usage"))
             }.padding(.top,2)
             Spacer(minLength:0)
         }.overlay(alignment:.topTrailing) {
@@ -243,7 +244,7 @@ struct WidgetView: View {
     }
     var sparkline: some View {
         GeometryReader { g in
-            let values: [Double?] = (model.isGemini && model.geminiQuota == nil)
+            let values: [Double?] = model.isGemini
                 ? model.geminiWeeklyTokens.map { $0.totalTokens.map(Double.init) }
                 : model.weekly.map { $0.consumedPercentagePoints }
             let maximum: Double = max(1,values.compactMap { $0 }.max() ?? 1)
@@ -353,10 +354,10 @@ struct WidgetView: View {
         VStack(alignment:.leading,spacing:14) {
             HStack {
                 Button { model.showingWeekly = false } label: { Image(systemName:"chevron.left").frame(width:24,height:24).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityIdentifier("WeeklyQuotaCloseButton")
-                Text(model.isGemini && model.geminiQuota == nil ? model.t("七日 Token 消耗","7-day token usage") : model.t("七日周额度消耗","Daily weekly-quota usage")).font(.system(size:14,weight:.regular))
+                Text(model.isGemini ? model.t("七日 Token 消耗","7-day token usage") : model.t("七日周额度消耗","Daily weekly-quota usage")).font(.system(size:14,weight:.regular))
                 Spacer()
             }
-            if model.isGemini && model.geminiQuota == nil {
+            if model.isGemini {
                 let maxTokens: Double = max(1000, Double(model.geminiWeeklyTokens.compactMap(\.totalTokens).max() ?? 0) * 1.18)
                 Chart(Array(model.geminiWeeklyTokens.enumerated()),id:\.element.id) { i,day in
                     if let tokens = day.totalTokens {
@@ -384,7 +385,9 @@ struct WidgetView: View {
                         }
                     }
                     .frame(height:290)
-                Text(model.t("仅统计本地 Antigravity 日志，无记录的日期留空；官方剩余百分比暂未开放外部接口。","Counts local Antigravity logs only; missing dates stay blank. Official remaining quota API is not publicly exposed."))
+                Text(model.geminiQuota != nil
+                     ? model.t("额度通过官方 agy CLI 同步，七日柱线图统计本地 Antigravity 日志，无记录的日期留空。","Quota syncs via official agy CLI; 7-day chart counts local Antigravity logs with missing dates blank.")
+                     : model.t("仅统计本地 Antigravity 日志，无记录的日期留空；未检测到已登录的 agy CLI。","Counts local Antigravity logs only; missing dates stay blank. Signed-in agy CLI not detected."))
                     .font(.system(size:9)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
             } else {
                 Chart(Array(model.weekly.enumerated()),id:\.element.id) { i,day in
@@ -473,7 +476,7 @@ struct SettingsView: View {
                         Button(model.t("自动检测","Auto-detect")) { model.preferences.geminiHomePath = "" }
                     }
                 }
-                Text(model.t("只读本地用量日志，不读取登录凭据、不联网。","Reads local usage logs only; no credentials or network access."))
+                Text(model.t("只读本地用量日志，并通过官方 agy CLI 查询 Gemini 剩余额度；不读取登录凭据。","Reads local usage logs and queries Gemini quota via official agy CLI; no credential access."))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section(model.t("维护","Maintenance")) {
@@ -482,7 +485,7 @@ struct SettingsView: View {
                     Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.activeBusy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.7 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.8 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).frame(width:480,height:720)
     }

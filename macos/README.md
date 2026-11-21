@@ -1,6 +1,6 @@
 # Codex 用量面板 · macOS
 
-本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.7。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
+本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.8。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
 
 ## 使用
 
@@ -80,3 +80,7 @@ macos/.build/rendering-tests /tmp/codex-widget-renders
 ## mac.7 Gemini (Antigravity) 双源本地监控
 
 新增 Codex / Gemini (Antigravity) 双源切换（面板顶部切换胶囊、右键菜单、顶部菜单栏与设置窗口均支持）。Gemini 侧只读本地 `~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl` 和只读打开 `conversation_summaries.db`，采用文件 mtime/size 增量缓存与 FSEvents 事件防抖监听，支持显式标题恢复、子代理归并、四周期任务排行和七日 Token 消耗曲线。不读取登录凭据、不联网；官方剩余百分比接口暂未公开，数据模型已预留接入槽位。
+
+## mac.8 Gemini 实时剩余额度百分比（官方 `agy` CLI）
+
+接入 Google 官方非交互 CLI 命令 `agy -p /usage --output-format json`（自动发现本机 `agy` 或 `/Applications/Gemini.app/Contents/Helpers/agy`，带 `AGY_CLI_DISABLE_AUTO_UPDATE=true`、`BROWSER=/usr/bin/false`、独立临时目录与 25 秒超时保护），不探测未公开内部端口、不读取登录凭据。启动、手动刷新及日志变更（60 秒冷却节流）时实时更新 Gemini 5 小时与周剩余额度百分比及重置倒计时；未检测到已登录 `agy` 时平滑回退到纯本地 Token 模式。

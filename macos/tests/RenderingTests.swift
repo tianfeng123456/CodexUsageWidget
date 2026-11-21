@@ -48,8 +48,15 @@ import SwiftUI
         }
         print("PASS: 24 native renders at 50%, 75% and 100%, 3 idle styles, fixed 420x540 panel and weekly chart, light/dark, Chinese/English; user settings untouched")
 
-        // Additional Gemini mode renders (dark Chinese + light English) for visual verification.
+        // Additional Gemini mode renders (dark Chinese + light English) with official agy percentage quota.
         model.preferences.activeProvider = .gemini
+        model.geminiQuota = Quota(
+            timestamp:"2026-11-21T09:47:35Z",
+            limitId:"gemini",
+            planType:"antigravity",
+            primary:QuotaWindow(usedPercent:3.5,windowMinutes:300,resetsAt:"2026-11-21T13:52:34Z"),
+            secondary:QuotaWindow(usedPercent:1.0,windowMinutes:10080,resetsAt:"2026-11-28T08:52:34Z")
+        )
         model.geminiTodayTokens = 13_420_000
         model.geminiRecent5hTokens = 4_850_000
         model.geminiSnapshot = Snapshot(period:0,topTasks:tasks,summary:Summary(total:totals,taskCount:10,otherTasksTotal:token),lastUpdated:"2026-11-20T14:00:00Z")

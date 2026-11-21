@@ -176,6 +176,7 @@ final class Model: ObservableObject {
     var settingsChanged: ((Preferences) -> Void)?
     var quotaChanged: (() -> Void)?
     private let geminiMonitor = GeminiUsageMonitor()
+    private let geminiQuotaFetcher = GeminiQuotaFetcher()
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
@@ -201,6 +202,7 @@ final class Model: ObservableObject {
             self.geminiBusy = false
             self.geminiError = nil
             self.quotaChanged?()
+            if !self.paused { self.fetchGeminiQuota(force: false) }
         }
     }
     var activeProvider: UsageProvider { preferences.activeProvider }
@@ -346,6 +348,17 @@ final class Model: ObservableObject {
         guard !paused else { return }
         geminiBusy = true; geminiError = nil
         geminiMonitor.start(home: preferences.geminiHomePath, period: preferences.period)
+        fetchGeminiQuota(force: true)
+    }
+    func fetchGeminiQuota(force: Bool) {
+        guard !paused else { return }
+        geminiQuotaFetcher.fetch(force: force) { [weak self] quota in
+            guard let self, !self.paused else { return }
+            if let quota {
+                self.geminiQuota = quota
+                self.quotaChanged?()
+            }
+        }
     }
     func stop() {
         generation = UUID(); pendingCommand = nil; ready = false
@@ -354,6 +367,7 @@ final class Model: ObservableObject {
         if let p = process, p.isRunning { p.terminate() }
         process = nil
         geminiMonitor.stop()
+        geminiQuotaFetcher.cancel()
     }
     func pause() { paused = true; stop(); busy = false; geminiBusy = false }
     func refresh(_ command: String = "refresh") {
@@ -361,6 +375,7 @@ final class Model: ObservableObject {
         if isGemini {
             geminiBusy = true; geminiError = nil
             geminiMonitor.refresh(home: preferences.geminiHomePath, period: preferences.period, resetCache: command == "rebuild")
+            fetchGeminiQuota(force: true)
             return
         }
         if process?.isRunning != true || (!ready && !busy) { start(); return }

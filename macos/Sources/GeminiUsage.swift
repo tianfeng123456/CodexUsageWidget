@@ -18,6 +18,169 @@ struct GeminiUsageResult {
     var taskModels: [String: [String]]
 }
 
+enum GeminiQuotaParser {
+    static func parse(_ data: Data, now: Date = Date()) -> Quota? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (root["status"] as? String) == "SUCCESS",
+              let command = root["command"] as? [String: Any],
+              (command["name"] as? String) == "usage",
+              let cmdData = command["data"] as? [String: Any],
+              let groups = cmdData["groups"] as? [[String: Any]] else {
+            return nil
+        }
+
+        let geminiGroup = groups.first { group in
+            let name = (group["name"] as? String ?? "").lowercased()
+            return name.contains("gemini")
+        } ?? groups.first
+
+        guard let buckets = geminiGroup?["buckets"] as? [[String: Any]], !buckets.isEmpty else {
+            return nil
+        }
+
+        var fiveHour: QuotaWindow?
+        var weekly: QuotaWindow?
+
+        for bucket in buckets {
+            guard let fracNum = bucket["remaining_fraction"] as? NSNumber else { continue }
+            let remaining = max(0.0, min(1.0, fracNum.doubleValue))
+            let usedPercent = max(0.0, min(100.0, (1.0 - remaining) * 100.0))
+            let resetTime = bucket["reset_time"] as? String
+            let window = (bucket["window"] as? String ?? "").lowercased()
+            let id = (bucket["id"] as? String ?? "").lowercased()
+
+            if window == "5h" || id.contains("5h") {
+                fiveHour = QuotaWindow(usedPercent: usedPercent, windowMinutes: 300, resetsAt: resetTime)
+            } else if window == "weekly" || id.contains("weekly") {
+                weekly = QuotaWindow(usedPercent: usedPercent, windowMinutes: 10080, resetsAt: resetTime)
+            }
+        }
+
+        guard fiveHour != nil || weekly != nil else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return Quota(
+            timestamp: iso.string(from: now),
+            limitId: "gemini",
+            planType: "antigravity",
+            primary: fiveHour ?? weekly,
+            secondary: (fiveHour != nil && weekly != nil) ? weekly : nil
+        )
+    }
+}
+
+final class GeminiQuotaFetcher {
+    private let queue = DispatchQueue(label: "widget.gemini.quota")
+    private var runningProcess: Process?
+    private var isFetching = false
+    private var lastFetchTime: Date?
+    private let minInterval: TimeInterval = 60
+
+    static func discoverCLI() -> String? {
+        let fm = FileManager.default
+        if let envPath = ProcessInfo.processInfo.environment["ANTIGRAVITY_CLI_PATH"] {
+            let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return nil }
+            return fm.isExecutableFile(atPath: trimmed) ? trimmed : nil
+        }
+        let home = fm.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "/opt/homebrew/bin/agy",
+            "/usr/local/bin/agy",
+            "\(home)/.local/bin/agy",
+            "/Applications/Gemini.app/Contents/Helpers/agy",
+            "\(home)/Applications/Gemini.app/Contents/Helpers/agy",
+            "/Applications/Antigravity.app/Contents/Helpers/agy",
+            "\(home)/Applications/Antigravity.app/Contents/Helpers/agy"
+        ]
+        for path in candidates where fm.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    func fetch(force: Bool, completion: @escaping (Quota?) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if self.isFetching { return }
+            if !force, let last = self.lastFetchTime, Date().timeIntervalSince(last) < self.minInterval {
+                return
+            }
+            guard let cliPath = Self.discoverCLI() else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            self.isFetching = true
+            self.lastFetchTime = Date()
+
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("codexusage-agy-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: cliPath)
+            proc.arguments = ["-p", "/usage", "--output-format", "json"]
+            proc.currentDirectoryURL = tempDir
+
+            var env = ProcessInfo.processInfo.environment
+            env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
+            env["BROWSER"] = "/usr/bin/false"
+            proc.environment = env
+
+            let stdout = Pipe()
+            proc.standardOutput = stdout
+            proc.standardError = FileHandle.nullDevice
+            proc.standardInput = FileHandle.nullDevice
+
+            self.runningProcess = proc
+            var outputData = Data()
+            let readGroup = DispatchGroup()
+            readGroup.enter()
+            DispatchQueue.global(qos: .utility).async {
+                outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+                readGroup.leave()
+            }
+
+            let timeout = DispatchWorkItem { [weak proc] in
+                if let p = proc, p.isRunning { p.terminate() }
+            }
+            self.queue.asyncAfter(deadline: .now() + 25, execute: timeout)
+
+            var parsedQuota: Quota?
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                timeout.cancel()
+                readGroup.wait()
+                if proc.terminationStatus == 0 {
+                    parsedQuota = GeminiQuotaParser.parse(outputData)
+                }
+            } catch {
+                timeout.cancel()
+            }
+
+            try? FileManager.default.removeItem(at: tempDir)
+            self.runningProcess = nil
+            self.isFetching = false
+
+            DispatchQueue.main.async {
+                completion(parsedQuota)
+            }
+        }
+    }
+
+    func cancel() {
+        queue.async { [weak self] in
+            if let p = self?.runningProcess, p.isRunning {
+                p.terminate()
+            }
+            self?.runningProcess = nil
+            self?.isFetching = false
+        }
+    }
+}
+
 struct GeminiTokenEvent {
     var timestamp: Date
     var inputTokens: Int64

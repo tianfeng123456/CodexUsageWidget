@@ -193,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard status != nil else { return }
         status.button?.image = NSImage(systemSymbolName:model.isGemini ? "sparkles" : "circle.hexagongrid",accessibilityDescription:model.isGemini ? "Gemini Usage" : "Codex Usage")
         status.button?.title = " " + model.menuBarTitle
-        status.button?.toolTip = (model.isGemini ? model.t("Gemini 本地用量 · ","Gemini local usage · ") : model.t("Codex 剩余额度 · ","Codex remaining · ")) + model.statusText
+        status.button?.toolTip = (model.isGemini ? model.t("Gemini 剩余额度 · ","Gemini remaining · ") : model.t("Codex 剩余额度 · ","Codex remaining · ")) + model.statusText
         let menu = NSMenu()
         add(menu,model.t("显示 / 隐藏","Show / Hide"),#selector(toggleVisible))
         menu.addItem(.separator())
