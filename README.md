@@ -6,9 +6,9 @@
 
 Windows 稳定版：**v1.2.3**；Mac 预发布版：**v1.3.0-mac.9**。中文说明见本页，英文说明见 [README.en.md](README.en.md)。
 
-一个完全在本机运行的桌面小组件，用来查看 Codex 剩余额度和各任务的 Token 消耗，支持 Windows 11 和 macOS。Windows 版使用 WPF，Mac 版使用原生 SwiftUI/AppKit，两者共用 C# 统计引擎。发布包均自带运行时，无需预装 .NET。
+一个完全在本机运行的桌面小组件，用来查看 Codex 与 Gemini（Antigravity，macOS 版）的剩余额度和各任务的 Token 消耗，支持 Windows 11 和 macOS。Windows 版使用 WPF，Mac 版使用原生 SwiftUI/AppKit，两者共用 C# 统计引擎。发布包均自带运行时，无需预装 .NET。
 
-> 本项目是非官方社区工具，与 OpenAI 不存在隶属、赞助或背书关系。
+> 本项目是非官方社区工具，与 OpenAI 或 Google 不存在隶属、赞助或背书关系。
 
 ## 下载与安装
 

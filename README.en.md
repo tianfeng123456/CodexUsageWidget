@@ -7,13 +7,14 @@
 Windows stable release: **v1.2.3**; Mac prerelease: **v1.3.0-mac.9**. Read this page in English or switch to the
 [Chinese README](README.md).
 
-A local-only desktop widget for monitoring remaining Codex quota and per-task
-token usage on Windows 11 and macOS. Windows uses WPF; Mac uses native
-SwiftUI/AppKit. Both share the C# statistics engine, and release packages include
-the runtime, so no separate .NET installation is required.
+A local-only desktop widget for monitoring Codex and Gemini (Antigravity, on
+macOS) remaining quotas and per-task token usage on Windows 11 and macOS.
+Windows uses WPF; Mac uses native SwiftUI/AppKit. Both share the C# statistics
+engine, and release packages include the runtime, so no separate .NET
+installation is required.
 
 > This is an unofficial community project. It is not affiliated with,
-> sponsored by, or endorsed by OpenAI.
+> sponsored by, or endorsed by OpenAI or Google.
 
 ## Download and install
 
