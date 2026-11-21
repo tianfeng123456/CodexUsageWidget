@@ -166,6 +166,7 @@ import SQLite3
         let parsedGeminiQuota = GeminiQuotaParser.parse(agyJSON, now: now)
         assert(parsedGeminiQuota != nil)
         assert(parsedGeminiQuota?.primary?.windowMinutes == 300)
+        assert(parsedGeminiQuota?.fiveHour?.windowMinutes == 300)
         assert(parsedGeminiQuota?.weekly?.windowMinutes == 10080)
         assert(abs((parsedGeminiQuota?.remaining ?? 0) - 96.48) < 0.01)
         assert(abs((parsedGeminiQuota?.weekly?.usedPercent ?? 0) - 1.0) < 0.01)
@@ -173,6 +174,14 @@ import SQLite3
         assert(model.remainingText == "96%" && model.menuBarTitle == "G 96%" && model.statusText == "Plenty remaining")
         assert(GeminiQuotaParser.parse(Data("{\"status\":\"ERROR\"}".utf8)) == nil)
 
-        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner, subagent merge & official agy CLI quota parser")
+        // PanelLayoutMode roundtrip and backward compatibility.
+        assert(Preferences().layoutMode == .focused)
+        var overviewPrefs = Preferences(); overviewPrefs.layoutMode = .overview
+        let decodedOverview = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(overviewPrefs))
+        assert(decodedOverview.layoutMode == .overview)
+        var badLayout = Preferences(); badLayout.panelLayout = "invalid"
+        assert(badLayout.normalized().layoutMode == .focused)
+
+        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner, subagent merge, official agy CLI quota parser & dual-layout preferences")
     }
 }

@@ -4,7 +4,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/tianfeng123456/CodexUsageWidget?label=latest)](../../releases/latest)
 
-Windows stable release: **v1.2.3**; Mac prerelease: **v1.3.0-mac.8**. Read this page in English or switch to the
+Windows stable release: **v1.2.3**; Mac prerelease: **v1.3.0-mac.9**. Read this page in English or switch to the
 [Chinese README](README.md).
 
 A local-only desktop widget for monitoring remaining Codex quota and per-task
@@ -19,12 +19,12 @@ the runtime, so no separate .NET installation is required.
 
 | Platform | Version and requirements | Download |
 |---|---|---|
-| Mac | v1.3.0-mac.8 (prerelease); Apple Silicon (M series), macOS 13+ | [Mac ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.8/CodexUsageWidget-v1.3.0-mac.8-arm64.zip) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.8) |
+| Mac | v1.3.0-mac.9 (prerelease); Apple Silicon (M series), macOS 13+ | [Mac ZIP](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.9/CodexUsageWidget-v1.3.0-mac.9-arm64.zip) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.3.0-mac.9) |
 | Windows | v1.2.3 (stable); Windows 11 x64 | [Windows EXE](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.2.3/CodexUsageWidget-v1.2.3-win-x64.exe) · [Release notes](https://github.com/tianfeng123456/CodexUsageWidget/releases/tag/v1.2.3) |
 
 ### Mac installation
 
-1. Download and unzip `CodexUsageWidget-v1.3.0-mac.8-arm64.zip`.
+1. Download and unzip `CodexUsageWidget-v1.3.0-mac.9-arm64.zip`.
 2. Move `Codex Usage Widget.app` into `/Applications` or `~/Applications`, then double-click it.
 3. The app displays a menu bar item and a desktop widget. Hover over the widget to expand it; use the right-click or menu bar menu to open Settings.
 
@@ -32,7 +32,7 @@ This package supports Apple Silicon Macs; an Intel package is not provided.
 It is ad-hoc signed and has not been signed with Apple Developer ID or notarized.
 If macOS blocks the first launch, review and allow it in **System Settings →
 Privacy & Security**. To verify the download, save the release's
-[SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.8/SHA256SUMS.txt)
+[SHA256SUMS.txt](https://github.com/tianfeng123456/CodexUsageWidget/releases/download/v1.3.0-mac.9/SHA256SUMS.txt)
 in the same directory as the ZIP and run:
 
 ```sh
@@ -46,15 +46,16 @@ The app reads `~/.codex` by default; select another Codex Home in Settings if
 needed. Only local history readable on the current Mac is included.
 
 The Mac app offers native glass materials, Glow / Circle / Capsule idle styles,
-a 50%–125% icon-size slider with live desktop preview, and a Codex / Gemini
-(Antigravity) dual-source switcher: Gemini mode fetches real-time 5-hour and
-weekly remaining quota percentages and reset countdowns via the official `agy`
-CLI (falling back gracefully when absent), while reading local
-`~/.gemini/antigravity` logs for token totals, subagent merging, task rankings,
-and a 7-day trend. Opening Settings collapses the widget while preserving normal
-hover expansion. Daily values appear directly on the weekly chart. See the
-[Mac documentation](macos/README.md) for features, data migration, and build
-instructions.
+a 50%–125% icon-size slider with live desktop preview, and two selectable
+expanded layouts (Single AI focus with 5-hour & weekly limits, or Dual AI
+overview where clicking a card opens its task consumption). Gemini mode fetches
+real-time 5-hour and weekly remaining quota percentages and reset countdowns via
+the official `agy` CLI (falling back gracefully when absent), while reading
+local `~/.gemini/antigravity` logs for token totals, subagent merging, task
+rankings, and a 7-day trend. Opening Settings collapses the widget while
+preserving normal hover expansion. Daily values appear directly on the weekly
+chart. See the [Mac documentation](macos/README.md) for features, data
+migration, and build instructions.
 
 ### Windows installation
 

@@ -8,6 +8,11 @@ enum UsageProvider: String, Codable, CaseIterable {
     case gemini
 }
 
+enum PanelLayoutMode: String, Codable, CaseIterable {
+    case focused
+    case overview
+}
+
 struct Preferences: Codable, Equatable {
     var theme = "dark"
     var language = "system"
@@ -34,6 +39,12 @@ struct Preferences: Codable, Equatable {
         get { geminiHome ?? "" }
         set { geminiHome = newValue.isEmpty ? nil : newValue }
     }
+    // Optional storage keeps settings written before mac.9 fully compatible.
+    var panelLayout: String? = nil
+    var layoutMode: PanelLayoutMode {
+        get { PanelLayoutMode(rawValue: panelLayout ?? "focused") ?? .focused }
+        set { panelLayout = newValue.rawValue }
+    }
     var period = 0
     var x: Double? = nil
     var y: Double? = nil
@@ -44,6 +55,7 @@ struct Preferences: Codable, Equatable {
         if !["circle","glow","capsule"].contains(p.idleStyle) { p.idleStyle = "circle" }
         if p.iconScale != nil { p.idleScale = p.idleScale }
         if let rawProvider = p.provider, UsageProvider(rawValue: rawProvider) == nil { p.provider = "codex" }
+        if let rawLayout = p.panelLayout, PanelLayoutMode(rawValue: rawLayout) == nil { p.panelLayout = "focused" }
         p.period = min(3,max(0,p.period)); p.transparency = min(1,max(0,p.transparency))
         return p
     }
@@ -88,6 +100,7 @@ struct Quota: Decodable {
     var secondary: QuotaWindow?
     var windows: [QuotaWindow] { [primary,secondary].compactMap { $0 } }
     var remaining: Double? { windows.map(\.remainingPercent).min() }
+    var fiveHour: QuotaWindow? { windows.first { $0.windowMinutes == 300 } }
     var weekly: QuotaWindow? { windows.first { $0.windowMinutes == 10080 } }
 }
 struct WeeklyDay: Decodable, Identifiable {
@@ -165,6 +178,7 @@ final class Model: ObservableObject {
     @Published var expanded = false
     @Published var pinned = false
     @Published var showingWeekly = false
+    @Published var showingOverview = false
     @Published var busy = false
     @Published var paused = false
     @Published var progress: Double = 0
@@ -284,6 +298,47 @@ final class Model: ObservableObject {
                 t("请在系统设置 → 通用 → 登录项中允许。","Allow this app in System Settings → General → Login Items.") : nil
         } catch { loginError = error.localizedDescription }
         syncLoginStatus(); settingsChanged?(preferences)
+    }
+    func resetCountdown(_ raw: String?, short: Bool = false) -> String {
+        guard let raw, let date = parsedDate(raw) else { return t("等待记录","Waiting") }
+        let hours = Int(max(0,date.timeIntervalSinceNow)/3600)
+        if hours >= 24 {
+            return short
+                ? (chinese ? "\(hours/24)天\(hours%24)h" : "\(hours/24)d \(hours%24)h")
+                : (chinese ? "\(hours/24)天\(hours%24)小时后重置" : "Resets in \(hours/24)d \(hours%24)h")
+        }
+        return short
+            ? (chinese ? "\(hours)h" : "\(hours)h")
+            : (chinese ? "\(hours)小时后重置" : "Resets in \(hours)h")
+    }
+    func statusLabel(for quota: Quota?, busy: Bool) -> String {
+        if paused { return t("监控已暂停", "Monitoring paused") }
+        guard let rem = quota?.remaining else { return busy ? t("正在同步", "Syncing") : t("等待数据", "Waiting for data") }
+        let r = Int(rem.rounded(.toNearestOrAwayFromZero))
+        switch r {
+        case 70...: return t("额度充足", "Plenty remaining")
+        case 30..<70: return t("用量平稳", "Usage steady")
+        case 10..<30: return t("额度偏低", "Running low")
+        case 1..<10: return t("即将用尽", "Almost exhausted")
+        default: return t("已用尽", "Exhausted")
+        }
+    }
+    func openProviderDetail(_ provider: UsageProvider) {
+        preferences.activeProvider = provider
+        showingOverview = false
+        showingWeekly = false
+        quotaChanged?()
+        if !paused { refresh() }
+    }
+    func refreshAll() {
+        if paused { return }
+        geminiBusy = true; geminiError = nil
+        geminiMonitor.refresh(home: preferences.geminiHomePath, period: preferences.period, resetCache: false)
+        fetchGeminiQuota(force: true)
+        if process?.isRunning != true || (!ready && !busy) { start(); return }
+        let request: [String:Any] = ["command":"refresh", "period":preferences.period]
+        if busy || !ready { pendingCommand = request; return }
+        busy = true; progress = 0; progressStage = ""; error = nil; send(request)
     }
     func dateText(_ raw: String?, timeOnly: Bool = false) -> String {
         guard let raw, let d = parsedDate(raw) else { return "--" }

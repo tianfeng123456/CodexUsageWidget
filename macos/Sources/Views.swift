@@ -170,27 +170,186 @@ struct WidgetView: View {
     }
     var panel: some View {
         VStack(spacing:0) {
-            header.frame(height:96,alignment:.top)
-            if model.showingWeekly { weeklyPanel }
-            else { tokensPanel }
-            footer.padding(.top,6)
+            if model.showingOverview {
+                overviewPanel
+            } else {
+                header.frame(height:96,alignment:.top)
+                if model.showingWeekly { weeklyPanel }
+                else { tokensPanel }
+                footer.padding(.top,6)
+            }
         }.padding(20).frame(width:420,height:540,alignment:.top)
+    }
+    func providerColor(_ provider: UsageProvider, quota: Quota?) -> Color {
+        if let rem = quota?.remaining {
+            let n = Int(rem.rounded(.toNearestOrAwayFromZero))
+            if n < 10 { return n > 0 ? .orange : .red }
+            if n < 30 { return Color(red:1,green:0.80,blue:0.45) }
+        }
+        if provider == .gemini {
+            return dark ? Color(red:0.46,green:0.68,blue:0.99) : Color(red:0.22,green:0.47,blue:0.88)
+        }
+        return dark ? Color(red:0.31,green:0.82,blue:0.66) : Color(red:0.08,green:0.65,blue:0.45)
+    }
+    var overviewPanel: some View {
+        VStack(spacing:0) {
+            HStack(alignment:.top) {
+                VStack(alignment:.leading,spacing:4) {
+                    Text(model.t("AI 额度总览","AI Quota Overview")).font(.system(size:20,weight:.medium))
+                    Text(model.t("点击卡片查看对应 AI 的任务消耗","Click a card to inspect task consumption"))
+                        .font(.system(size:10.5)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength:0)
+                HStack(spacing:12) {
+                    Button { model.pinned.toggle() } label: { Image(systemName:model.pinned ? "pin.fill" : "pin") }.foregroundStyle(model.pinned ? accent : .secondary).help(model.t("固定展开","Pin panel"))
+                    Button { model.refreshAll() } label: { Image(systemName:"arrow.clockwise") }.help(model.t("立即刷新","Refresh now")).disabled(model.busy && model.geminiBusy)
+                    Button(action:settings) { Image(systemName:"gearshape") }.help(model.t("设置","Settings"))
+                }.buttonStyle(.plain).font(.system(size:15,weight:.light)).foregroundStyle(.secondary).offset(y:2).headerControl()
+            }.frame(height:60,alignment:.top)
+
+            VStack(spacing:14) {
+                overviewCard(
+                    provider: .codex,
+                    title: "Codex",
+                    symbol: "circle.hexagongrid",
+                    quota: model.quota,
+                    snapshot: model.snapshot,
+                    todayTokens: model.snapshot?.period == 0 ? model.snapshot?.summary.total.totalTokens : nil,
+                    busy: model.busy
+                )
+                overviewCard(
+                    provider: .gemini,
+                    title: "Gemini",
+                    symbol: "sparkles",
+                    quota: model.geminiQuota,
+                    snapshot: model.geminiSnapshot,
+                    todayTokens: model.geminiTodayTokens > 0 || model.geminiSnapshot != nil ? model.geminiTodayTokens : nil,
+                    busy: model.geminiBusy
+                )
+            }.frame(maxHeight:.infinity,alignment:.center)
+
+            HStack {
+                if let error = model.error ?? model.geminiError {
+                    Text(error).foregroundStyle(.red).lineLimit(1).help(error)
+                } else if model.paused {
+                    Text(model.t("监控已暂停","Monitoring paused")).foregroundStyle(.secondary)
+                } else if model.busy || model.geminiBusy {
+                    Text(model.t("正在同步额度与本地日志…","Syncing quotas & local logs…")).foregroundStyle(.secondary)
+                } else {
+                    Text(model.t("Codex · Gemini 双源同步","Codex · Gemini synced")).foregroundStyle(.secondary)
+                }
+                Spacer(minLength:4)
+                Text(model.t("最后刷新 ","Updated ") + model.dateText(model.snapshot?.lastUpdated ?? model.geminiSnapshot?.lastUpdated ?? model.quota?.timestamp ?? model.geminiQuota?.timestamp, timeOnly:true))
+                    .foregroundStyle(.secondary)
+            }.font(.system(size:8.5,weight:.light)).frame(height:14).padding(.top,6)
+        }
+    }
+    func overviewCard(provider: UsageProvider, title: String, symbol: String, quota: Quota?, snapshot: Snapshot?, todayTokens: Int64?, busy: Bool) -> some View {
+        let color = providerColor(provider, quota: quota)
+        let headline: String = {
+            if let rem = quota?.remaining { return "\(Int(rem.rounded(.toNearestOrAwayFromZero)))%" }
+            if provider == .gemini, let today = todayTokens { return model.compactNumber(today) }
+            return "--"
+        }()
+        let status = (provider == .gemini && quota == nil)
+            ? (todayTokens != nil ? model.t("近5h ","5h ") + model.compactNumber(model.geminiRecent5hTokens) : model.t("等待数据","Waiting"))
+            : model.statusLabel(for: quota, busy: busy)
+
+        return Button { model.openProviderDetail(provider) } label: {
+            VStack(alignment:.leading,spacing:12) {
+                HStack(alignment:.center,spacing:10) {
+                    VStack(alignment:.leading,spacing:4) {
+                        HStack(spacing:6) {
+                            Image(systemName:symbol).font(.system(size:12,weight:.medium)).foregroundStyle(color)
+                            Text(title).font(.system(size:15,weight:.medium)).foregroundStyle(.primary)
+                        }
+                        Text(status).font(.system(size:10.5)).foregroundStyle(color)
+                    }
+                    Spacer(minLength:0)
+                    Text(headline).font(.system(size:36,weight:.ultraLight)).monospacedDigit().tracking(-1).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.6)
+                    Image(systemName:"chevron.right").font(.system(size:11,weight:.medium)).foregroundStyle(.secondary.opacity(0.7)).padding(.leading,2)
+                }
+
+                VStack(spacing:9) {
+                    quotaBarRow(label: model.t("5小时限额","5-hour limit"), window: quota?.fiveHour, color: color)
+                    quotaBarRow(label: model.t("每周限额","Weekly limit"), window: quota?.weekly, color: color)
+                }
+
+                HStack {
+                    if let today = todayTokens {
+                        Text(model.t("今日消耗 ","Today ") + model.number(today))
+                    } else if let s = snapshot {
+                        Text(model.t("当前周期 ","Period ") + model.number(s.summary.total.totalTokens))
+                    } else {
+                        Text(model.t("点击加载任务消耗","Click to load task usage"))
+                    }
+                    Spacer(minLength:4)
+                    if let s = snapshot {
+                        Text(model.chinese ? "\(s.summary.taskCount) 个任务" : "\(s.summary.taskCount) tasks")
+                    }
+                }.font(.system(size:9.5,weight:.light)).foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth:.infinity,alignment:.leading)
+            .background(
+                RoundedRectangle(cornerRadius:20)
+                    .fill(Color.primary.opacity(dark ? 0.065 : 0.055))
+                    .overlay(RoundedRectangle(cornerRadius:20).stroke(Color.primary.opacity(dark ? 0.10 : 0.08), lineWidth:0.6))
+            )
+            .contentShape(RoundedRectangle(cornerRadius:20))
+        }.buttonStyle(.plain).accessibilityIdentifier("OverviewCard_\(provider.rawValue)")
+    }
+    func quotaBarRow(label: String, window: QuotaWindow?, color: Color) -> some View {
+        let rem = window?.remainingPercent
+        let pctText = rem.map { "\(Int($0.rounded(.toNearestOrAwayFromZero)))%" } ?? "--"
+        let reset = window?.resetsAt.map { model.resetCountdown($0, short: true) } ?? ""
+        return VStack(spacing:4) {
+            HStack(spacing:6) {
+                Text(label).font(.system(size:10.5)).foregroundStyle(.secondary)
+                Spacer(minLength:0)
+                if !reset.isEmpty {
+                    Text(reset).font(.system(size:9.5)).foregroundStyle(.secondary.opacity(0.85)).monospacedDigit()
+                }
+                Text(model.t("剩 ","") + pctText).font(.system(size:10.5,weight:.medium)).monospacedDigit().foregroundStyle(rem != nil ? .primary : .secondary).frame(minWidth:36,alignment:.trailing)
+            }
+            GeometryReader { g in
+                let fraction = min(1, max(0, (rem ?? 0) / 100.0))
+                let fillWidth = g.size.width * CGFloat(fraction)
+                Capsule().fill(Color.primary.opacity(dark ? 0.14 : 0.10))
+                if rem != nil {
+                    Capsule().fill(color.opacity(0.85)).frame(width:max(3, fillWidth))
+                }
+            }.frame(height:3)
+        }
     }
     var header: some View {
         HStack(alignment:.top,spacing:16) {
             Text(model.remainingText).font(.system(size:55,weight:.ultraLight)).monospacedDigit().tracking(-2).lineLimit(1).minimumScaleFactor(0.45).frame(width:112,alignment:.leading).padding(.top,4).contentShape(Rectangle())
             VStack(alignment:.leading,spacing:5) {
-                Text(model.isGemini ? (model.geminiQuota != nil ? model.t("Gemini 剩余","Gemini left") : model.t("Gemini 今日","Gemini today")) : model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).contentShape(Rectangle())
+                HStack(spacing:6) {
+                    if model.preferences.layoutMode == .overview {
+                        Button { model.showingWeekly = false; model.showingOverview = true } label: {
+                            HStack(spacing:2) {
+                                Image(systemName:"chevron.left").font(.system(size:10,weight:.semibold))
+                                Text(model.t("总览","All")).font(.system(size:10.5,weight:.medium))
+                            }
+                            .foregroundStyle(accent)
+                            .padding(.horizontal,6).padding(.vertical,2)
+                            .background(Capsule().fill(accent.opacity(dark ? 0.18 : 0.14)))
+                        }.buttonStyle(.plain).headerControl().accessibilityIdentifier("BackToOverviewButton")
+                    }
+                    Text(model.isGemini ? (model.geminiQuota != nil ? model.t("Gemini 剩余","Gemini left") : model.t("Gemini 今日","Gemini today")) : model.t("剩余额度","Remaining")).font(.system(size:14,weight:.regular)).lineLimit(1).contentShape(Rectangle())
+                }
                 Text(resetText).font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1).contentShape(Rectangle())
                 Button {
                     model.showingWeekly.toggle()
                     if model.showingWeekly { model.refresh("weekly") }
                 } label: {
-                    HStack(spacing:5) {
-                        Circle().fill(accent).frame(width:7,height:7)
+                    HStack(spacing:4) {
+                        Circle().fill(accent).frame(width:6.5,height:6.5)
                         Text(weeklyTriggerLabel)
                             .font(.system(size:10.5)).foregroundStyle(.secondary).lineLimit(1)
-                        sparkline.frame(width:48,height:14).allowsHitTesting(false).accessibilityHidden(true)
+                        sparkline.frame(width:30,height:13).allowsHitTesting(false).accessibilityHidden(true)
                     }.frame(minHeight:24).contentShape(Rectangle())
                 }.buttonStyle(.plain).headerControl().accessibilityIdentifier("WeeklyQuotaTrendButton").help(model.isGemini ? model.t("查看七日 Token 消耗","View 7-day token usage") : model.t("查看七日周额度消耗","View daily weekly-quota usage"))
             }.padding(.top,2)
@@ -229,18 +388,31 @@ struct WidgetView: View {
         if model.isGemini && model.geminiQuota == nil {
             return model.t("7日 ", "7d ") + model.compactNumber(model.geminiWeeklyTotal)
         }
-        return model.t("周已用 ","Week ") + (model.activeQuota?.weekly.map { String(format:"%.0f%%",$0.usedPercent) } ?? "--")
+        guard let weekly = model.activeQuota?.weekly else {
+            return model.t("周剩 --", "Wk --")
+        }
+        let rem = "\(Int(weekly.remainingPercent.rounded(.toNearestOrAwayFromZero)))%"
+        if let raw = weekly.resetsAt {
+            let shortReset = model.resetCountdown(raw, short: true)
+            return model.t("周剩 ", "Wk ") + rem + " · " + shortReset
+        }
+        return model.t("周剩 ", "Wk ") + rem
     }
     var resetText: String {
         if model.paused { return model.statusText }
         if model.isGemini && model.geminiQuota == nil {
             return model.t("近5h ","5h ") + model.compactNumber(model.geminiRecent5hTokens) + model.t(" · 本地日志"," · Local")
         }
+        if let fiveHour = model.activeQuota?.fiveHour {
+            let rem = "\(Int(fiveHour.remainingPercent.rounded(.toNearestOrAwayFromZero)))%"
+            if let raw = fiveHour.resetsAt {
+                return model.t("5h剩 ","5h ") + rem + " · " + model.resetCountdown(raw, short: true)
+            }
+            return model.t("5h剩 ","5h ") + rem
+        }
         let window = model.activeQuota?.windows.min { $0.remainingPercent < $1.remainingPercent }
-        guard let raw = window?.resetsAt, let date = parsedDate(raw) else { return model.t("等待额度记录","Waiting for quota") }
-        let hours = Int(max(0,date.timeIntervalSinceNow)/3600)
-        if hours >= 24 { return model.chinese ? "\(hours/24)天\(hours%24)小时后重置" : "Resets in \(hours/24)d \(hours%24)h" }
-        return model.chinese ? "\(hours)小时后重置" : "Resets in \(hours)h"
+        guard let raw = window?.resetsAt else { return model.t("等待额度记录","Waiting for quota") }
+        return model.resetCountdown(raw, short: false)
     }
     var sparkline: some View {
         GeometryReader { g in
@@ -437,6 +609,10 @@ struct SettingsView: View {
                 Picker(model.t("待机样式","Idle style"),selection:$model.preferences.idleStyle) {
                     Text(model.t("微光","Glow")).tag("glow"); Text(model.t("圆环","Circle")).tag("circle"); Text(model.t("胶囊","Capsule")).tag("capsule")
                 }
+                Picker(model.t("展开界面","Expanded layout"),selection:$model.preferences.layoutMode) {
+                    Text(model.t("单 AI 为主（含周额度）","Single AI focus")).tag(PanelLayoutMode.focused)
+                    Text(model.t("双 AI 额度总览（点击看任务）","Dual AI overview")).tag(PanelLayoutMode.overview)
+                }
                 Slider(value:$model.preferences.idleScale,in:0.5...1.25,step:0.05) {
                     Text(model.t("图标大小","Icon size") + " \(Int((model.preferences.idleScale*100).rounded()))%")
                 }.accessibilityIdentifier("IdleIconScaleSlider")
@@ -485,7 +661,7 @@ struct SettingsView: View {
                     Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.activeBusy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.8 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.9 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).frame(width:480,height:720)
     }

@@ -1,6 +1,6 @@
 # Codex 用量面板 · macOS
 
-本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.8。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
+本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.9。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
 
 ## 使用
 
@@ -84,3 +84,9 @@ macos/.build/rendering-tests /tmp/codex-widget-renders
 ## mac.8 Gemini 实时剩余额度百分比（官方 `agy` CLI）
 
 接入 Google 官方非交互 CLI 命令 `agy -p /usage --output-format json`（自动发现本机 `agy` 或 `/Applications/Gemini.app/Contents/Helpers/agy`，带 `AGY_CLI_DISABLE_AUTO_UPDATE=true`、`BROWSER=/usr/bin/false`、独立临时目录与 25 秒超时保护），不探测未公开内部端口、不读取登录凭据。启动、手动刷新及日志变更（60 秒冷却节流）时实时更新 Gemini 5 小时与周剩余额度百分比及重置倒计时；未检测到已登录 `agy` 时平滑回退到纯本地 Token 模式。
+
+## mac.9 每周限额与双展开界面模式
+
+在设置 → 外观中新增「展开界面」二选一：
+- **单 AI 为主（含周额度）**：展开直接显示当前 AI 的任务消耗，顶部同时展示 5 小时限额剩余与每周限额剩余及重置倒计时。
+- **双 AI 额度总览（点击看任务）**：展开优先展示 Codex 与 Gemini 两张额度卡片（各自包含 5 小时限额与每周限额进度条、重置倒计时及今日 Token），点击任意卡片下钻进入该 AI 的任务消耗明细，支持按钮或 `Esc` 返回总览。

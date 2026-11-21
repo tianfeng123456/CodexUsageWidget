@@ -86,8 +86,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         collapseWork?.cancel()
         hoverTrigger = value && model.preferences.idleStyle == "glow" ? panel.frame : nil
         model.expanded = value
-        if value { model.showingWeekly = false; model.selectPeriod(0) }
-        else { model.pinned = false; model.showingWeekly = false }
+        if value {
+            model.showingWeekly = false
+            if model.preferences.layoutMode == .overview {
+                model.showingOverview = true
+                model.preferences.period = 0
+                model.refreshAll()
+            } else {
+                model.showingOverview = false
+                model.selectPeriod(0)
+            }
+        } else {
+            model.pinned = false; model.showingWeekly = false; model.showingOverview = false
+        }
         position(); syncPointerMonitor()
     }
     func hover(_ entered: Bool) {
@@ -124,7 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func installInputMonitor() {
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
             guard let self, event.window === self.panel else { return event }
-            if event.keyCode == 53, self.model.showingWeekly { self.model.showingWeekly = false; return nil }
+            if event.keyCode == 53 {
+                if self.model.showingWeekly { self.model.showingWeekly = false; return nil }
+                if self.model.preferences.layoutMode == .overview && !self.model.showingOverview {
+                    self.model.showingOverview = true; return nil
+                }
+            }
             return event
         }
     }
@@ -187,6 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if !model.paused { model.startGemini() }
         }
         if old.pauseOnSleep != model.preferences.pauseOnSleep { updateSleep() }
+        if old.layoutMode != model.preferences.layoutMode && model.expanded {
+            model.showingWeekly = false
+            model.showingOverview = model.preferences.layoutMode == .overview
+        }
         syncPointerMonitor(); updateStatus()
     }
     func updateStatus() {

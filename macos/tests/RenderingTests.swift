@@ -90,5 +90,37 @@ import SwiftUI
             }
         }
         print("PASS: 8 Gemini native renders (dark-zh & light-en, circle/capsule/panel/weekly)")
+
+        // Dual AI overview renders + overview drill-down render.
+        model.quota = Quota(
+            timestamp:"2026-11-21T09:47:35Z",
+            limitId:"codex",
+            planType:"pro",
+            primary:QuotaWindow(usedPercent:53,windowMinutes:300,resetsAt:"2026-11-21T12:10:00Z"),
+            secondary:QuotaWindow(usedPercent:28,windowMinutes:10080,resetsAt:"2026-11-26T06:00:00Z")
+        )
+        model.preferences.layoutMode = .overview
+        model.expanded = true
+        model.showingWeekly = false
+        for (theme, lang, showingOverview, name) in [
+            ("dark","zh",true,"overview-dark"),
+            ("light","en",true,"overview-light"),
+            ("dark","zh",false,"overview-detail-dark")
+        ] {
+            model.preferences.language = lang
+            model.showingOverview = showingOverview
+            let size = NSSize(width:420,height:540)
+            let window = NSWindow(contentRect:NSRect(origin:.zero,size:size),styleMask:.borderless,backing:.buffered,defer:false)
+            window.appearance = NSAppearance(named:theme == "dark" ? .darkAqua : .aqua)
+            let view = NSHostingView(rootView:WidgetView(model:model,settings:{},hover:{_ in},startDrag:{_ in},collapse:{}))
+            view.sizingOptions = []; window.contentView = view; view.frame = NSRect(origin:.zero,size:size)
+            view.layoutSubtreeIfNeeded(); RunLoop.current.run(until:Date().addingTimeInterval(0.08))
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds) else { fatalError("No bitmap") }
+            view.cacheDisplay(in:view.bounds,to:bitmap)
+            guard let png = bitmap.representation(using:.png,properties:[:]) else { fatalError("No PNG") }
+            try png.write(to:output.appendingPathComponent("\(name).png"))
+            window.contentView = nil
+        }
+        print("PASS: 3 dual-AI overview & drill-down renders")
     }
 }
