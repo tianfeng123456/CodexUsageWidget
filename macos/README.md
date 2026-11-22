@@ -1,6 +1,6 @@
 # Codex 用量面板 · macOS
 
-本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.9。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
+本分支基于云端 `main` / Windows v1.2.3（`b4c488403a97fff23480dd8a59cb6fa8019fed36`），新增 macOS 原生应用 v1.3.0-mac.10。统计引擎沿用原 C# Core，包括子代理归并、高水位去重、主动重置前后累计和大于 100% 的每日额度消耗。
 
 ## 使用
 
@@ -90,3 +90,7 @@ macos/.build/rendering-tests /tmp/codex-widget-renders
 在设置 → 外观中新增「展开界面」二选一：
 - **单 AI 为主（含周额度）**：展开直接显示当前 AI 的任务消耗，顶部同时展示 5 小时限额剩余与每周限额剩余及重置倒计时。
 - **双 AI 额度总览（点击看任务）**：展开优先展示 Codex 与 Gemini 两张额度卡片（各自包含 5 小时限额与每周限额进度条、重置倒计时及今日 Token），点击任意卡片下钻进入该 AI 的任务消耗明细，支持按钮或 `Esc` 返回总览。
+
+## mac.10 合并 `antigravity-cli`（协议/CLI 通道）Token 消耗
+
+默认自动检测同时扫描与监听 `~/.gemini/antigravity`（桌面端）和 `~/.gemini/antigravity-cli`（CLI 与协议通道派发任务），将两者的对话日志与 `conversation_summaries.db` 合并纳入今日/近7日/本月/累计总 Token、任务排行与七日趋势图，解决外部协议派发任务只见周额度下降、不见 Token 统计的问题。

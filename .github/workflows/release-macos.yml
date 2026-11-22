@@ -67,6 +67,7 @@ jobs:
           cat > macos/.build/release-notes.md <<'NOTES'
           Codex 用量面板 macOS 原生版，适用于 Apple Silicon（M1/M2/M3/M4 等）及 macOS 13+。
 
+          - mac.10 修复：自动合并统计 `~/.gemini/antigravity` 与 `~/.gemini/antigravity-cli`（CLI / 协议通道派发任务），总 Token 消耗、任务排行与七日趋势均完整计入。
           - mac.9 新增：支持每周限额剩余清晰展示，设置新增两种展开界面可选（单 AI 为主含 5h/周额度，或双 AI 额度总览点击卡片查看任务消耗）。
           - mac.8 新增：接入官方 `agy -p /usage --output-format json`，Gemini 页实时显示 5 小时 / 周剩余额度百分比、重置倒计时与预警配色（未检测到 `agy` 时回退到本地 Token 模式）。
           - mac.7 新增：支持 Codex / Gemini (Antigravity) 双源切换，纯本地只读统计 Antigravity 对话 Token 消耗、子代理归并、任务排行与七日趋势。

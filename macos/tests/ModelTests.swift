@@ -182,6 +182,23 @@ import SQLite3
         var badLayout = Preferences(); badLayout.panelLayout = "invalid"
         assert(badLayout.normalized().layoutMode == .focused)
 
-        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner, subagent merge, official agy CLI quota parser & dual-layout preferences")
+        // Multi-directory Gemini aggregation (antigravity + antigravity-cli under parent root).
+        let multiRoot = FileManager.default.temporaryDirectory.appendingPathComponent("gemini-multi-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: multiRoot) }
+        let guiConv = multiRoot.appendingPathComponent("antigravity/brain/gui-task/.system_generated/logs")
+        let cliConv = multiRoot.appendingPathComponent("antigravity-cli/brain/cli-task/.system_generated/logs")
+        try FileManager.default.createDirectory(at: guiConv, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cliConv, withIntermediateDirectories: true)
+        let guiLine = "{\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"2026-11-20T12:00:00Z\",\"model\":\"gemini-4-neon-medium\",\"input_tokens\":1000,\"cache_read_tokens\":0,\"output_tokens\":200}\n"
+        let cliLine = "{\"type\":\"PLANNER_RESPONSE\",\"created_at\":\"2026-11-20T13:00:00Z\",\"model\":\"gemini-4-carbon-high\",\"input_tokens\":4000,\"cache_read_tokens\":6000,\"output_tokens\":500}\n"
+        try guiLine.write(to: guiConv.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+        try cliLine.write(to: cliConv.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+        let multiScanner = GeminiUsageScanner(calendar: utcCal)
+        let multiRes = multiScanner.scan(home: multiRoot.path, period: 0, now: now)
+        assert(multiRes.todayTokens == 11700) // 1200 + 10500
+        assert(multiRes.snapshot.summary.taskCount == 2)
+        assert(multiRes.home.contains("antigravity-cli"))
+
+        print("PASS: Chinese/English units, .NET timestamps, most constrained window, weekly selection, percentage clamping, settings roundtrip, 3-style edge geometry, anchor stability, native drag hit regions and offsets, negative-screen clamp, rounded hover, settings validation, status rounding, progress, sleep gate, Gemini scanner, subagent merge, official agy CLI quota parser, dual-layout preferences & multi-dir antigravity-cli aggregation")
     }
 }

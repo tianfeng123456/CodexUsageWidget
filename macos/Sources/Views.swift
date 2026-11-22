@@ -645,7 +645,7 @@ struct SettingsView: View {
                 }
                 VStack(alignment:.leading,spacing:4) {
                     Text("Gemini (Antigravity) Home").font(.caption).foregroundStyle(.secondary)
-                    Text(model.geminiSourceHome.isEmpty ? model.t("自动检测 ~/.gemini/antigravity","Auto-detect ~/.gemini/antigravity") : model.geminiSourceHome)
+                    Text(model.geminiSourceHome.isEmpty ? model.t("自动检测 ~/.gemini/antigravity (+ cli)","Auto-detect ~/.gemini/antigravity (+ cli)") : model.geminiSourceHome)
                         .font(.system(size:11,design:.monospaced)).textSelection(.enabled)
                     HStack {
                         Button(model.t("选择 Gemini Home…","Choose Gemini Home…")) { chooseGeminiHome() }
@@ -661,7 +661,7 @@ struct SettingsView: View {
                     Button(model.t("重建统计索引","Rebuild index")) { model.refresh("rebuild") }.disabled(model.activeBusy)
                     Button(model.t("打开数据目录","Open data folder")) { NSWorkspace.shared.open(Model.dataDirectory) }
                 }
-                Text("v1.3.0-mac.9 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
+                Text("v1.3.0-mac.10 · Apple Silicon · macOS 13+").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).frame(width:480,height:720)
     }

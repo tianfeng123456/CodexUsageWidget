@@ -206,41 +206,76 @@ final class GeminiUsageScanner {
     }
 
     private var fileCache: [String: FileCacheEntry] = [:]
-    private var meta = ConversationMeta()
+    private var metaByDb: [String: ConversationMeta] = [:]
+    private var mergedTitles: [String: String] = [:]
+    private var mergedParents: [String: String] = [:]
     private let calendar: Calendar
 
     init(calendar: Calendar = .current) {
         self.calendar = calendar
     }
 
-    static func resolveHome(_ custom: String) -> String {
+    static func resolveHomes(_ custom: String) -> [String] {
+        let fm = FileManager.default
         let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            return (trimmed as NSString).expandingTildeInPath
+            let expanded = (trimmed as NSString).expandingTildeInPath
+            let directBrain = (expanded as NSString).appendingPathComponent("brain")
+            if fm.fileExists(atPath: directBrain) {
+                return [expanded]
+            }
+            // If user selected parent directory like ~/.gemini, auto-discover antigravity & antigravity-cli under it.
+            let subCandidates = ["antigravity", "antigravity-cli"].map {
+                (expanded as NSString).appendingPathComponent($0)
+            }.filter { fm.fileExists(atPath: $0) }
+            return subCandidates.isEmpty ? [expanded] : subCandidates
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity")
-            .path
+        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent(".gemini").path
+        let candidates = ["antigravity", "antigravity-cli"].map {
+            (base as NSString).appendingPathComponent($0)
+        }
+        let existing = candidates.filter { fm.fileExists(atPath: $0) }
+        return existing.isEmpty ? [candidates[0]] : existing
+    }
+
+    static func resolveHomeDisplay(_ homes: [String]) -> String {
+        guard let first = homes.first else { return "" }
+        if homes.count == 1 { return first }
+        let extras = homes.dropFirst().map { URL(fileURLWithPath: $0).lastPathComponent }
+        return first + " (+" + extras.joined(separator: ", ") + ")"
     }
 
     func resetCache() {
         fileCache.removeAll()
-        meta = ConversationMeta()
+        metaByDb.removeAll()
+        mergedTitles.removeAll()
+        mergedParents.removeAll()
     }
 
     func scan(home customHome: String, period: Int, now: Date = Date()) -> GeminiUsageResult {
-        let home = Self.resolveHome(customHome)
+        let homes = Self.resolveHomes(customHome)
         let fm = FileManager.default
-        let brainDir = (home as NSString).appendingPathComponent("brain")
-        let dbPath = (home as NSString).appendingPathComponent("conversation_summaries.db")
 
-        refreshMetadataIfNeeded(dbPath: dbPath)
+        var activeDbs = Set<String>()
+        for home in homes {
+            let dbPath = (home as NSString).appendingPathComponent("conversation_summaries.db")
+            activeDbs.insert(dbPath)
+            refreshMetadataIfNeeded(dbPath: dbPath)
+        }
+        if metaByDb.count > activeDbs.count {
+            metaByDb = metaByDb.filter { activeDbs.contains($0.key) }
+        }
+        rebuildMergedMeta(orderedDbs: homes.map { ($0 as NSString).appendingPathComponent("conversation_summaries.db") })
 
         var activePaths = Set<String>()
         var eventsByConversation: [String: [GeminiTokenEvent]] = [:]
         var fallbackTitles: [String: String] = [:]
+        var cliConversations = Set<String>()
 
-        if let entries = try? fm.contentsOfDirectory(atPath: brainDir) {
+        for home in homes {
+            let isCliHome = URL(fileURLWithPath: home).lastPathComponent.contains("cli")
+            let brainDir = (home as NSString).appendingPathComponent("brain")
+            guard let entries = try? fm.contentsOfDirectory(atPath: brainDir) else { continue }
             for conversationId in entries {
                 if conversationId.hasPrefix(".") { continue }
                 let transcriptPath = ((brainDir as NSString).appendingPathComponent(conversationId) as NSString)
@@ -249,6 +284,7 @@ final class GeminiUsageScanner {
                       let modDate = attrs[.modificationDate] as? Date,
                       let fileSize = attrs[.size] as? NSNumber else { continue }
                 activePaths.insert(transcriptPath)
+                if isCliHome { cliConversations.insert(conversationId) }
                 let mtime = modDate.timeIntervalSince1970
                 let size = fileSize.uint64Value
                 let entry: FileCacheEntry
@@ -260,9 +296,9 @@ final class GeminiUsageScanner {
                     fileCache[transcriptPath] = entry
                 }
                 if !entry.events.isEmpty {
-                    eventsByConversation[conversationId] = entry.events
+                    eventsByConversation[conversationId, default: []].append(contentsOf: entry.events)
                 }
-                if let fallback = entry.fallbackTitle, !fallback.isEmpty {
+                if let fallback = entry.fallbackTitle, !fallback.isEmpty, fallbackTitles[conversationId] == nil {
                     fallbackTitles[conversationId] = fallback
                 }
             }
@@ -360,7 +396,7 @@ final class GeminiUsageScanner {
 
         let topTasks: [TaskUsage] = topSlice.map { (rootId, usage) in
             let pct = totalUsage.totalTokens > 0 ? Double(usage.totalTokens) / Double(totalUsage.totalTokens) * 100.0 : 0.0
-            let title = resolveTitle(rootId: rootId, fallbackTitles: fallbackTitles)
+            let title = resolveTitle(rootId: rootId, fallbackTitles: fallbackTitles, isCli: cliConversations.contains(rootId))
             return TaskUsage(rootTaskId: rootId, title: title, usage: usage, percentOfPeriod: pct, isArchived: false)
         }
 
@@ -389,7 +425,7 @@ final class GeminiUsageScanner {
         let taskModels = taskModelsSet.mapValues { $0.sorted() }
 
         return GeminiUsageResult(
-            home: home,
+            home: Self.resolveHomeDisplay(homes),
             snapshot: snapshot,
             weeklyTokens: weeklyDays,
             todayTokens: todayTokens,
@@ -398,25 +434,37 @@ final class GeminiUsageScanner {
         )
     }
 
+    private func rebuildMergedMeta(orderedDbs: [String]) {
+        var titles: [String: String] = [:]
+        var parents: [String: String] = [:]
+        for dbPath in orderedDbs {
+            guard let m = metaByDb[dbPath] else { continue }
+            for (k, v) in m.titles where titles[k] == nil { titles[k] = v }
+            for (k, v) in m.parents where parents[k] == nil { parents[k] = v }
+        }
+        mergedTitles = titles
+        mergedParents = parents
+    }
+
     private func resolveRoot(_ id: String) -> String {
         var current = id
         var visited = Set<String>([current])
         for _ in 0..<32 {
-            guard let parent = meta.parents[current], !parent.isEmpty, !visited.contains(parent) else { break }
+            guard let parent = mergedParents[current], !parent.isEmpty, !visited.contains(parent) else { break }
             visited.insert(parent)
             current = parent
         }
         return current
     }
 
-    private func resolveTitle(rootId: String, fallbackTitles: [String: String]) -> String {
-        if let explicit = meta.titles[rootId], !explicit.isEmpty {
+    private func resolveTitle(rootId: String, fallbackTitles: [String: String], isCli: Bool) -> String {
+        if let explicit = mergedTitles[rootId], !explicit.isEmpty {
             return explicit
         }
         if let fallback = fallbackTitles[rootId], !fallback.isEmpty {
             return fallback
         }
-        return "Gemini " + String(rootId.prefix(8))
+        return (isCli ? "Gemini CLI " : "Gemini ") + String(rootId.prefix(8))
     }
 
     private func refreshMetadataIfNeeded(dbPath: String) {
@@ -424,7 +472,7 @@ final class GeminiUsageScanner {
         guard let attrs = try? fm.attributesOfItem(atPath: dbPath),
               let modDate = attrs[.modificationDate] as? Date,
               let size = attrs[.size] as? NSNumber else {
-            meta = ConversationMeta()
+            metaByDb.removeValue(forKey: dbPath)
             return
         }
         let walPath = dbPath + "-wal"
@@ -434,7 +482,7 @@ final class GeminiUsageScanner {
         let combinedMtime = max(modDate.timeIntervalSince1970, walMtime)
         let combinedSize = size.uint64Value &+ walSize
 
-        if meta.dbMtime == combinedMtime && meta.dbSize == combinedSize {
+        if let existing = metaByDb[dbPath], existing.dbMtime == combinedMtime && existing.dbSize == combinedSize {
             return
         }
 
@@ -480,7 +528,7 @@ final class GeminiUsageScanner {
             }
         }
 
-        meta = ConversationMeta(titles: titles, parents: parents, dbMtime: combinedMtime, dbSize: combinedSize)
+        metaByDb[dbPath] = ConversationMeta(titles: titles, parents: parents, dbMtime: combinedMtime, dbSize: combinedSize)
     }
 
     private func parseTranscript(at path: String) -> (events: [GeminiTokenEvent], fallbackTitle: String?) {
@@ -561,7 +609,8 @@ final class GeminiUsageMonitor {
     private var stream: FSEventStreamRef?
     private var debounceWork: DispatchWorkItem?
     private var firstChange: Date?
-    private var watchedHome = ""
+    private var watchedCustomHome = ""
+    private var watchedHomes: [String] = []
     private var currentPeriod = 0
     private var running = false
     var onUpdate: ((GeminiUsageResult) -> Void)?
@@ -572,13 +621,14 @@ final class GeminiUsageMonitor {
             self.stopInternal()
             self.running = true
             self.currentPeriod = period
-            let resolved = GeminiUsageScanner.resolveHome(customHome)
-            if self.watchedHome != resolved {
+            self.watchedCustomHome = customHome
+            let resolved = GeminiUsageScanner.resolveHomes(customHome)
+            if self.watchedHomes != resolved {
                 self.scanner.resetCache()
-                self.watchedHome = resolved
+                self.watchedHomes = resolved
             }
-            self.emitScan(home: resolved, period: period)
-            self.startWatching(home: resolved)
+            self.emitScan(customHome: customHome, period: period)
+            self.startWatching(homes: resolved)
         }
     }
 
@@ -586,16 +636,17 @@ final class GeminiUsageMonitor {
         queue.async { [weak self] in
             guard let self, self.running else { return }
             self.currentPeriod = period
-            let resolved = GeminiUsageScanner.resolveHome(customHome)
-            if resetCache || self.watchedHome != resolved {
+            self.watchedCustomHome = customHome
+            let resolved = GeminiUsageScanner.resolveHomes(customHome)
+            if resetCache || self.watchedHomes != resolved {
                 self.scanner.resetCache()
-                if self.watchedHome != resolved {
+                if self.watchedHomes != resolved {
                     self.stopWatching()
-                    self.watchedHome = resolved
-                    self.startWatching(home: resolved)
+                    self.watchedHomes = resolved
+                    self.startWatching(homes: resolved)
                 }
             }
-            self.emitScan(home: resolved, period: period)
+            self.emitScan(customHome: customHome, period: period)
         }
     }
 
@@ -613,15 +664,16 @@ final class GeminiUsageMonitor {
         stopWatching()
     }
 
-    private func emitScan(home: String, period: Int) {
-        let result = scanner.scan(home: home, period: period)
+    private func emitScan(customHome: String, period: Int) {
+        let result = scanner.scan(home: customHome, period: period)
         DispatchQueue.main.async { [weak self] in
             self?.onUpdate?(result)
         }
     }
 
-    private func startWatching(home: String) {
-        guard FileManager.default.fileExists(atPath: home) else { return }
+    private func startWatching(homes: [String]) {
+        let existing = homes.filter { FileManager.default.fileExists(atPath: $0) }
+        guard !existing.isEmpty else { return }
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
@@ -629,7 +681,7 @@ final class GeminiUsageMonitor {
             release: nil,
             copyDescription: nil
         )
-        let paths = [home] as CFArray
+        let paths = existing as CFArray
         let flags = FSEventStreamCreateFlags(
             kFSEventStreamCreateFlagUseCFTypes |
             kFSEventStreamCreateFlagFileEvents |
@@ -675,7 +727,7 @@ final class GeminiUsageMonitor {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.running else { return }
             self.firstChange = nil
-            self.emitScan(home: self.watchedHome, period: self.currentPeriod)
+            self.emitScan(customHome: self.watchedCustomHome, period: self.currentPeriod)
         }
         debounceWork = work
         queue.asyncAfter(deadline: .now() + delay, execute: work)
